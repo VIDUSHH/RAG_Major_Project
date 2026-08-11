@@ -1,4 +1,12 @@
+import sys
+from pathlib import Path
 from contextlib import asynccontextmanager
+
+# Ensure fastapi_backend directory is in sys.path when launching from workspace root
+fastapi_dir = Path(__file__).resolve().parent.parent
+if str(fastapi_dir) not in sys.path:
+    sys.path.insert(0, str(fastapi_dir))
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.router import api_router
