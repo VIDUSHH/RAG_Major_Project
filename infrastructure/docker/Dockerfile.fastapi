@@ -7,7 +7,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     DATA_DIR=/data
 
 COPY infrastructure/docker/requirements.fastapi.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+# CPU-only PyTorch (smaller image, no CUDA libs) for local sentence-transformers embeddings
+RUN pip install --no-cache-dir torch==2.13.0+cpu --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir -r requirements.txt
 
 COPY fastapi_backend /app/
 

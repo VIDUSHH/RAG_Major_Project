@@ -96,10 +96,33 @@ def analyze_incident(
             top_k=request.top_k,
         )
 
+        from app.services.activity_service import record_activity
+
+        record_activity(
+            "analyze",
+            f"Analyzed: {request.query[:80]}",
+            org_id=ctx.organization_id,
+            detail=(
+                f"Confidence {response.get('confidence', 'N/A')}, "
+                f"{len(response.get('evidence', []))} evidence items"
+            ),
+            meta={"confidence": response.get("confidence")},
+        )
+
         return response
 
     except Exception as e:
         logger.error(f"Incident analysis failed: {e}")
+
+        from app.services.activity_service import record_activity
+
+        record_activity(
+            "analyze",
+            f"Analysis failed: {request.query[:60]}",
+            org_id=ctx.organization_id,
+            status="failed",
+            detail=str(e)[:300],
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Analysis failed: {str(e)}",

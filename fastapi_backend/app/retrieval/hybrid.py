@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 from rank_bm25 import BM25Okapi
 
+from app.core.config import settings
 from app.core.logging import logger
 from app.embeddings.provider import EmbeddingProvider, get_embedding_provider
 from app.services.vector_service import QdrantService, get_qdrant_service
@@ -426,5 +427,5 @@ def get_hybrid_retriever() -> HybridRetriever:
     """Get or create singleton hybrid retriever."""
     global _hybrid_retriever
     if _hybrid_retriever is None:
-        _hybrid_retriever = HybridRetriever()
+        _hybrid_retriever = HybridRetriever(enable_reranking=settings.RERANKING_ENABLED)
     return _hybrid_retriever

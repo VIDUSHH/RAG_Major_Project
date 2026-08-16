@@ -33,12 +33,18 @@ class Settings(BaseSettings):
 
     # LLM Settings
     GEMINI_API_KEY: str = ""
+    # Local embedding provider (no API quota): sentence-transformers runs fully offline.
+    # Set EMBEDDING_PROVIDER=gemini + EMBEDDING_MODEL=gemini-embedding-2 to use the API instead.
     EMBEDDING_PROVIDER: str = "sentence-transformers"
-    EMBEDDING_MODEL: str = "text-embedding-004"
-    EMBEDDING_DIMENSION: int = 768
+    EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
+    EMBEDDING_DIMENSION: int = 384
     LLM_PROVIDER: str = "mock"
     LLM_MODEL: str = "gemini-1.5-flash"
     LLM_TEMPERATURE: float = 0.1
+
+    # Optional cross-encoder reranking (needs a local model download; off by default
+    # to keep retrieval fast on free-tier hardware)
+    RERANKING_ENABLED: bool = False
 
     # Django Control Plane integration
     DJANGO_INTERNAL_URL: str = "http://localhost:8000"

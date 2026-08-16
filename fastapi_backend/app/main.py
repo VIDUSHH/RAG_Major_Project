@@ -52,6 +52,13 @@ async def root_health():
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
+    # Bump whenever the SPA assets change so browsers never serve a stale
+    # app.js/styles.css even if an intermediary caches the HTML shell.
+    _asset_version = str(
+        int((STATIC_DIR / "app.js").stat().st_mtime)
+        + int((STATIC_DIR / "styles.css").stat().st_mtime)
+    )
+
     @app.get("/", include_in_schema=False)
     async def serve_frontend():
         # Inject the current internal API key into the page so the SPA can call
@@ -61,7 +68,11 @@ if STATIC_DIR.exists():
             "__INTERNAL_API_KEY__",
             json.dumps(settings.FASTAPI_INTERNAL_API_KEY),
         )
-        return HTMLResponse(html)
+        # Version the static asset URLs so a redeploy always pulls fresh JS/CSS.
+        html = html.replace("__APP_VERSION__", _asset_version)
+        # Never cache the shell or static assets: the SPA changes frequently and
+        # a stale cached app.js is a classic "UI looks frozen" source of bugs.
+        return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
     @app.get("/{path:path}", include_in_schema=False)
     async def serve_spa(path: str):
@@ -69,5 +80,5 @@ if STATIC_DIR.exists():
         # catch-all never shadows /health, /docs or the /api/v1 endpoints.
         file_path = STATIC_DIR / path
         if file_path.exists() and file_path.is_file():
-            return FileResponse(file_path)
+            return FileResponse(file_path, headers={"Cache-Control": "no-store"})
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")

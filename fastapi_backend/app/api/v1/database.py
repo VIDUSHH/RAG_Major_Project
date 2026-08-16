@@ -4,8 +4,10 @@ Database inspection API endpoints for viewing stored data.
 
 from fastapi import APIRouter, HTTPException, Query, status
 
+from app.core.config import settings
 from app.core.dependencies import TenantDep
 from app.core.logging import logger
+from app.services.activity_service import recent_activity
 from app.services.graph_service import get_neo4j_service
 from app.services.vector_service import get_qdrant_service
 
@@ -36,6 +38,76 @@ def get_vector_stats(ctx: TenantDep):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get vector stats: {str(e)}",
+        ) from e
+
+
+@router.get("/vectors/summary", summary="Documents summary with chunking strategies")
+def get_vector_summary(
+    ctx: TenantDep,
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    service: str | None = Query(None),
+):
+    """Group stored chunks by source document, showing per-document chunk counts
+    and the chunking strategy used to ingest each one."""
+    try:
+        qdrant = get_qdrant_service()
+        filter_dict = {"organization_id": ctx.organization_id, "service": service}
+        qdrant_filter = qdrant.create_tenant_filter(
+            **{k: v for k, v in filter_dict.items() if v}
+        )
+
+        docs: dict[str, dict] = {}
+        next_offset: int | None = 0
+        scanned = 0
+        while next_offset is not None and scanned < 20000:
+            points, next_offset = qdrant.scroll(
+                filter_=qdrant_filter, limit=1000, offset=next_offset
+            )
+            for p in points:
+                scanned += 1
+                payload = p.payload or {}
+                source = payload.get("source") or "unknown"
+                entry = docs.setdefault(
+                    source,
+                    {
+                        "source": source,
+                        "chunks": 0,
+                        "strategies": {},
+                        "service": payload.get("service"),
+                        "source_type": payload.get("source_type"),
+                        "first_timestamp": payload.get("timestamp"),
+                        "last_timestamp": payload.get("timestamp"),
+                        "sample_text": payload.get("text", "")[:120],
+                    },
+                )
+                entry["chunks"] += 1
+                strategy = payload.get("chunking_strategy") or "unknown"
+                entry["strategies"][strategy] = entry["strategies"].get(strategy, 0) + 1
+                ts = payload.get("timestamp")
+                if ts:
+                    if entry["first_timestamp"] is None or ts < entry["first_timestamp"]:
+                        entry["first_timestamp"] = ts
+                    if entry["last_timestamp"] is None or ts > entry["last_timestamp"]:
+                        entry["last_timestamp"] = ts
+
+        all_docs = list(docs.values())
+        all_docs.sort(key=lambda d: d["first_timestamp"] or "", reverse=True)
+
+        total_chunks = sum(d["chunks"] for d in all_docs)
+        return {
+            "documents_count": len(all_docs),
+            "total_chunks": total_chunks,
+            "documents": all_docs[offset : offset + limit],
+            "offset": offset,
+            "limit": limit,
+            "scanned_points": scanned,
+        }
+    except Exception as e:
+        logger.error(f"Failed to get vector summary: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get vector summary: {str(e)}",
         ) from e
 
 
@@ -154,26 +226,28 @@ def get_vector_document(
     """Get a specific document from vector DB."""
     try:
         qdrant = get_qdrant_service()
-        filter_dict = {"organization_id": ctx.organization_id}
-        qdrant_filter = qdrant.create_tenant_filter(**filter_dict)
+        points = qdrant.retrieve([doc_id])
 
-        points, _ = qdrant.scroll(filter_=qdrant_filter, limit=1000)
+        if not points:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Document not found",
+            )
 
-        for p in points:
-            if p.id == doc_id:
-                return {
-                    "id": p.id,
-                    "text": p.payload.get("text", ""),
-                    "source": p.payload.get("source"),
-                    "service": p.payload.get("service"),
-                    "timestamp": p.payload.get("timestamp"),
-                    "metadata": p.payload.get("metadata"),
-                }
-
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found",
-        )
+        p = points[0]
+        payload = p.payload or {}
+        return {
+            "id": p.id,
+            "text": payload.get("text", ""),
+            "source": payload.get("source"),
+            "source_type": payload.get("source_type"),
+            "service": payload.get("service"),
+            "timestamp": payload.get("timestamp"),
+            "chunk_index": payload.get("chunk_index"),
+            "total_chunks": payload.get("total_chunks"),
+            "chunking_strategy": payload.get("chunking_strategy"),
+            "metadata": payload.get("metadata"),
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -283,11 +357,21 @@ def get_service_graph(
     service_name: str,
     depth: int = Query(2, ge=1, le=4),
 ):
-    """Get service dependency graph."""
+    """Get service dependency graph (nodes + relationships up to ``depth``)."""
     try:
         neo4j = get_neo4j_service()
+        depth = int(depth)
 
-        query = """
+        def _node_entry(node) -> dict:
+            props = dict(node)
+            return {
+                "id": props.get("id") or node.element_id,
+                "type": list(node.labels)[0] if node.labels else "Unknown",
+                "properties": props,
+            }
+
+        # Primary: APOC subgraph (nodes) starting from the service.
+        apoc_query = """
         MATCH (s:Service {name: $service_name})
         CALL apoc.path.subgraphNodes(s, {
             relationshipFilter: 'DEPENDS_ON|CALLS|USES|PRODUCED_LOG',
@@ -295,33 +379,70 @@ def get_service_graph(
             maxLevel: $depth,
             labelFilter: 'Service|Error|LogEntry|Component'
         }) YIELD node
-        RETURN node
+        RETURN s, collect(DISTINCT node) AS nodes
         """
+        # Fallback without APOC: variable-length pattern (depth interpolated as a
+        # validated int because Cypher does not allow parameterised lengths).
+        fallback_query = f"""
+        MATCH (start:Service {{name: $service_name}})
+        OPTIONAL MATCH (start)-[:DEPENDS_ON|CALLS|USES|PRODUCED_LOG*1..{depth}]-(related)
+        RETURN start, collect(DISTINCT related) AS related
+        """
+
+        all_nodes: list = []
 
         with neo4j.session() as session:
             try:
-                result = session.run(query, {"service_name": service_name, "depth": depth})
-            except Exception:
-                # Fallback without APOC
-                query = """
-                MATCH (s:Service {name: $service_name})
-                -[r:DEPENDS_ON|CALLS|USES*1..$depth]-(related)
-                RETURN DISTINCT related, r
-                """
-                result = session.run(query, {"service_name": service_name, "depth": depth})
-
-            nodes = []
-            for record in result:
-                node = record["node"] if "node" in record else record["related"]
-                nodes.append(
-                    {
-                        "id": node["id"],
-                        "type": list(node.labels)[0] if node.labels else "Unknown",
-                        "properties": dict(node),
-                    }
+                records = list(
+                    session.run(apoc_query, {"service_name": service_name, "depth": depth})
                 )
+            except Exception as e:
+                logger.warning(f"APOC subgraph unavailable, falling back to plain Cypher: {e}")
+                records = []
 
-        return {"service": service_name, "nodes": nodes, "count": len(nodes)}
+            if records:
+                for row in records:
+                    if row.get("s"):
+                        all_nodes.append(row.get("s"))
+                    all_nodes.extend(row.get("nodes") or [])
+            else:
+                row = session.run(fallback_query, {"service_name": service_name}).single()
+                if row and row.get("start"):
+                    all_nodes.append(row.get("start"))
+                    all_nodes.extend(row.get("related") or [])
+
+            nodes: dict[str, dict] = {}
+            for node in all_nodes:
+                if node is None:
+                    continue
+                entry = _node_entry(node)
+                nodes[entry["id"]] = entry
+
+            relationships = []
+            if nodes:
+                edge_rows = session.run(
+                    """
+                    MATCH (a)-[r:DEPENDS_ON|CALLS|USES|PRODUCED_LOG]-(b)
+                    WHERE a.id IN $ids AND b.id IN $ids
+                    RETURN a.id AS source, b.id AS target, type(r) AS type
+                    """,
+                    {"ids": list(nodes.keys())},
+                )
+                for row in edge_rows:
+                    relationships.append(
+                        {
+                            "type": row["type"],
+                            "source": row["source"],
+                            "target": row["target"],
+                        }
+                    )
+
+        return {
+            "service": service_name,
+            "nodes": list(nodes.values()),
+            "relationships": relationships,
+            "count": len(nodes),
+        }
     except Exception as e:
         logger.error(f"Failed to get service graph: {e}")
         raise HTTPException(
@@ -442,10 +563,46 @@ def get_system_status(ctx: TenantDep):
                 "stats": neo4j_stats,
             },
             "overall_healthy": qdrant_healthy and neo4j_healthy,
+            "embedding": {
+                "provider": settings.EMBEDDING_PROVIDER,
+                "model": settings.EMBEDDING_MODEL,
+                "dimension": settings.EMBEDDING_DIMENSION,
+            },
+            "llm": {
+                "provider": settings.LLM_PROVIDER,
+                "model": settings.LLM_MODEL,
+            },
+            "project": settings.PROJECT_NAME,
         }
     except Exception as e:
         logger.error(f"System status check failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Status check failed: {str(e)}",
+        ) from e
+
+
+# Recent Activity
+
+
+@router.get("/activity/recent", summary="Recent activity feed")
+def get_recent_activity(
+    ctx: TenantDep,
+    limit: int = Query(50, ge=1, le=200),
+    event_type: str | None = Query(None),
+):
+    """Return the most recent user actions (ingestion, analysis, etc.)."""
+    try:
+        return {
+            "activities": recent_activity(
+                org_id=ctx.organization_id,
+                limit=limit,
+                event_type=event_type,
+            )
+        }
+    except Exception as e:
+        logger.error(f"Failed to get activity: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get activity: {str(e)}",
         ) from e

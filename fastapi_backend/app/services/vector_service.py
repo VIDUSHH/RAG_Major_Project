@@ -139,6 +139,15 @@ class QdrantService:
         collections = client.get_collections().collections
         return [c.name for c in collections]
 
+    def _collection_dimension(self, collection_name: str) -> int | None:
+        """Return the configured vector dimension of an existing collection, or None."""
+        try:
+            info = self._get_client().get_collection(collection_name=collection_name)
+            vectors = info.config.params.vectors
+            return vectors.size if vectors else None
+        except Exception:
+            return None
+
     def create_collection(
         self,
         collection_name: str,
@@ -146,12 +155,25 @@ class QdrantService:
         distance: Distance = Distance.COSINE,
         recreate: bool = False,
     ) -> bool:
-        """Create a collection if it doesn't exist."""
+        """Create a collection if it doesn't exist.
+
+        If the collection already exists with a different vector dimension
+        (e.g. after switching embedding models), it is recreated at the new
+        dimension so writes don't fail — existing points are dropped and a
+        warning is logged.
+        """
         client = self._get_client()
         try:
             existing = client.get_collections().collections
             if any(c.name == collection_name for c in existing):
-                if recreate:
+                current_dim = self._collection_dimension(collection_name)
+                if recreate or (current_dim is not None and current_dim != dimension):
+                    if not recreate:
+                        logger.warning(
+                            f"Collection {collection_name} has dimension {current_dim} "
+                            f"but the embedding provider uses {dimension}; recreating at "
+                            f"{dimension} (existing points will be dropped)"
+                        )
                     client.delete_collection(collection_name=collection_name)
                 else:
                     logger.info(f"Collection {collection_name} already exists")
@@ -184,12 +206,12 @@ class QdrantService:
         """True if the error is a collection-not-found (404)."""
         return isinstance(e, UnexpectedResponse) and e.status_code == 404
 
-    def _ensure_collection(self, collection_name: str) -> None:
+    def _ensure_collection(self, collection_name: str, dimension: int = 768) -> None:
         """Ensure a collection exists, creating it on first use (idempotent)."""
         if collection_name in self._ensured_collections:
             return
         try:
-            self.create_collection(collection_name)
+            self.create_collection(collection_name, dimension=dimension)
         except Exception as e:
             logger.warning(f"Could not ensure collection {collection_name}: {e}")
         self._ensured_collections.add(collection_name)
@@ -233,11 +255,17 @@ class QdrantService:
         points: list[PointStruct],
         collection_name: str | None = None,
         batch_size: int = 100,
+        dimension: int | None = None,
     ) -> int:
-        """Upsert points in batches."""
+        """Upsert points in batches.
+
+        ``dimension`` is the embedding dimension used to create the collection
+        if it does not exist yet (or if it must be recreated after a change of
+        embedding model).
+        """
         client = self._get_client()
         name = collection_name or self._default_collection
-        self._ensure_collection(name)
+        self._ensure_collection(name, dimension=dimension or 768)
         total_upserted = 0
 
         for i in range(0, len(points), batch_size):
@@ -399,6 +427,31 @@ class QdrantService:
         except Exception as e:
             logger.error(f"Count failed: {e}")
             return 0
+
+    def retrieve(
+        self,
+        point_ids: list[str],
+        collection_name: str | None = None,
+    ) -> list[VectorSearchResult]:
+        """Retrieve points by ID without searching (for detail views)."""
+        client = self._get_client()
+        name = collection_name or self._default_collection
+        if not point_ids:
+            return []
+        try:
+            points = client.retrieve(
+                collection_name=name,
+                ids=point_ids,
+                with_payload=True,
+                with_vectors=False,
+            )
+            return [
+                VectorSearchResult(id=str(p.id), score=1.0, payload=p.payload or {})
+                for p in points
+            ]
+        except Exception as e:
+            logger.error(f"Retrieve failed: {e}")
+            return []
 
     def create_tenant_filter(
         self,

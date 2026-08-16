@@ -2,6 +2,7 @@
 Ingestion API endpoints for the FastAPI data plane.
 """
 
+import re
 import shutil
 import time
 import uuid
@@ -18,6 +19,7 @@ from app.core.logging import logger
 from app.embeddings.provider import get_embedding_provider
 from app.ingestion.parsers import PARSER_FACTORY, ParsedEntry
 from app.processing.chunking import ChunkerFactory, create_chunker
+from app.services.activity_service import record_activity
 from app.services.graph_service import (
     get_neo4j_service,
 )
@@ -70,6 +72,8 @@ def _ingest_entries(
     chunker = create_chunker(chunking_strategy)
     chunks = chunker.chunk(entries, organization_id=org_id, project_id=proj_id)
     logger.info(f"Created {len(chunks)} chunks")
+    for chunk in chunks:
+        chunk.chunking_strategy = chunking_strategy
 
     chunks_requested = len(chunks)
     truncated = False
@@ -103,7 +107,7 @@ def _ingest_entries(
         create_point_from_chunk(chunk, embedding)
         for chunk, embedding in zip(chunks, embedding_result.embeddings, strict=True)
     ]
-    qdrant.upsert_points(points)
+    qdrant.upsert_points(points, dimension=embedding_result.dimension)
     logger.info(f"Stored {len(points)} points in Qdrant")
 
     # Store in Neo4j (best-effort: graph is auxiliary; Qdrant is the source of truth)
@@ -158,6 +162,12 @@ def ingest_file(
         logger.info(f"Parsed {len(entries)} entries")
 
         if not entries:
+            record_activity(
+                "ingest",
+                f"No entries in {file.filename}",
+                org_id=org_id,
+                status="warning",
+            )
             return JSONResponse(
                 status_code=status.HTTP_200_OK,
                 content={
@@ -180,6 +190,18 @@ def ingest_file(
 
         duration_ms = (time.time() - start_time) * 1000
 
+        record_activity(
+            "ingest",
+            f"Ingested {file.filename}",
+            org_id=org_id,
+            detail=f"{result['entries_parsed']} entries, {result['chunks_created']} chunks "
+            f"({chunking_strategy})",
+            meta={
+                "chunks_created": result["chunks_created"],
+                "chunking_strategy": chunking_strategy,
+            },
+        )
+
         return {
             "status": "completed",
             "file_id": file_id,
@@ -190,6 +212,13 @@ def ingest_file(
 
     except Exception as e:
         logger.error(f"Ingestion failed: {e}")
+        record_activity(
+            "ingest",
+            f"Failed to ingest {file.filename}",
+            org_id=org_id,
+            status="failed",
+            detail=str(e)[:300],
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Ingestion failed: {str(e)}",
@@ -239,6 +268,17 @@ def ingest_batch(
                         **result,
                     }
                 )
+                record_activity(
+                    "ingest",
+                    f"Ingested {file.filename}",
+                    org_id=org_id,
+                    detail=f"{result['entries_parsed']} entries, {result['chunks_created']} chunks "
+                    f"({chunking_strategy})",
+                    meta={
+                        "chunks_created": result["chunks_created"],
+                        "chunking_strategy": chunking_strategy,
+                    },
+                )
             else:
                 results.append(
                     {
@@ -247,6 +287,12 @@ def ingest_batch(
                         "entries_parsed": 0,
                         "chunks_created": 0,
                     }
+                )
+                record_activity(
+                    "ingest",
+                    f"No entries in {file.filename}",
+                    org_id=org_id,
+                    status="warning",
                 )
 
             temp_path.unlink()
@@ -259,6 +305,13 @@ def ingest_batch(
                     "status": "failed",
                     "error": str(e),
                 }
+            )
+            record_activity(
+                "ingest",
+                f"Failed to ingest {file.filename}",
+                org_id=org_id,
+                status="failed",
+                detail=str(e)[:300],
             )
 
     return {
@@ -298,6 +351,17 @@ def ingest_text(
     result["status"] = "completed"
     result["title"] = request.title
     result["processing_time_ms"] = (time.time() - start_time) * 1000
+
+    record_activity(
+        "ingest",
+        f"Ingested document '{request.title}'",
+        org_id=org_id,
+        detail=f"{result['chunks_created']} chunks ({request.chunking_strategy})",
+        meta={
+            "chunks_created": result["chunks_created"],
+            "chunking_strategy": request.chunking_strategy,
+        },
+    )
     return result
 
 
@@ -437,3 +501,34 @@ def _store_chunks_in_neo4j(neo4j, chunks, org_id, proj_id):
         """,
             org_id=org_id,
         )
+
+        # Extract service-to-service dependencies: if a log line mentions another
+        # known service, record that this service depends on it.
+        known_names = {
+            row["name"]
+            for row in session.run("MATCH (s:Service) RETURN s.name AS name")
+            if row["name"] and row["name"] != "unknown"
+        }
+        for source_name, source_chunks in service_chunks.items():
+            if not source_name or source_name == "unknown":
+                continue
+            mentioned = set()
+            for chunk in source_chunks:
+                text = (chunk.text or "").lower()
+                if not text:
+                    continue
+                for other in known_names:
+                    if other == source_name:
+                        continue
+                    if re.search(rf"\b{re.escape(other.lower())}\b", text):
+                        mentioned.add(other)
+            for other in mentioned:
+                session.run(
+                    """
+                    MATCH (a:Service {name: $a}), (b:Service {name: $b})
+                    MERGE (a)-[:DEPENDS_ON]->(b)
+                """,
+                    a=source_name,
+                    b=other,
+                )
+                logger.info(f"Dependency edge: {source_name} -> {other}")

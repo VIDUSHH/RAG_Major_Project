@@ -67,6 +67,9 @@ Thumbs.db
 *.seed
 *.pid.lock
 
+# Runtime data (uploads, activity log)
+data/
+
 # Additional files and directories to ignore
 imp.md
 Datasets

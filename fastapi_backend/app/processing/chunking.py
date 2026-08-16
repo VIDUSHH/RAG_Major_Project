@@ -32,6 +32,7 @@ class Chunk:
     parent_id: str | None = None
     chunk_index: int = 0
     total_chunks: int = 0
+    chunking_strategy: str | None = None
 
     def to_payload(self) -> dict[str, Any]:
         """Convert to payload for vector database storage."""
@@ -49,6 +50,7 @@ class Chunk:
             "parent_id": self.parent_id,
             "chunk_index": self.chunk_index,
             "total_chunks": self.total_chunks,
+            "chunking_strategy": self.chunking_strategy,
         }
         return {k: v for k, v in payload.items() if v is not None}
 
