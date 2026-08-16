@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+
+{% block title %}Delete {{ organization.name }} - RAG Postmortem Intelligence{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="page-title">Delete Organization</h1>
+        <p class="page-subtitle">This action cannot be undone</p>
+    </div>
+    <a href="{% url 'organization_detail' organization.pk %}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i> Cancel
+    </a>
+</div>
+
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+        <div class="card border-danger">
+            <div class="card-header bg-danger text-white">
+                <h5 class="mb-0"><i class="bi bi-exclamation-triangle me-2"></i>Confirm Deletion</h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-circle me-2"></i>
+                    <strong>Warning:</strong> Deleting "{{ organization.name }}" will permanently remove:
+                </div>
+                <ul class="list-group list-group-flush mb-3">
+                    <li class="list-group-item"><i class="bi bi-folder text-danger me-2"></i>All projects ({{ organization.projects.count }})</li>
+                    <li class="list-group-item"><i class="bi bi-server text-danger me-2"></i>All services</li>
+                    <li class="list-group-item"><i class="bi bi-exclamation-triangle text-danger me-2"></i>All incidents</li>
+                    <li class="list-group-item"><i class="bi bi-file-earmark-text text-danger me-2"></i>All postmortems</li>
+                    <li class="list-group-item"><i class="bi bi-hdd-network text-danger me-2"></i>All log sources</li>
+                    <li class="list-group-item"><i class="bi bi-people text-danger me-2"></i>All member associations</li>
+                </ul>
+                
+                <form method="post">
+                    {% csrf_token %}
+                    <div class="d-flex justify-content-end gap-2">
+                        <a href="{% url 'organization_detail' organization.pk %}" class="btn btn-outline-secondary">Cancel</a>
+                        <button type="submit" class="btn btn-danger">
+                            <i class="bi bi-trash me-1"></i> Delete Organization
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

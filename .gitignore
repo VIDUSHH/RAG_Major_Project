@@ -45,6 +45,7 @@ staticfiles/
 
 # Testing & Coverage
 .pytest_cache/
+.mypy_cache/
 .coverage
 htmlcov/
 .nox/
@@ -65,3 +66,8 @@ Thumbs.db
 *.pid
 *.seed
 *.pid.lock
+
+# Additional files and directories to ignore
+imp.md
+Datasets
+Interview_Prepapration

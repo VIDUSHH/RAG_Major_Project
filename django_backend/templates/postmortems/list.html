@@ -1,0 +1,143 @@
+{% extends 'base.html' %}
+
+{% block title %}Postmortems - RAG Postmortem Intelligence{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="page-title">Postmortems</h1>
+        <p class="page-subtitle">Manage postmortem documents and track ingestion status</p>
+    </div>
+    <a href="{% url 'postmortem_create' %}" class="btn btn-primary">
+        <i class="bi bi-plus-circle me-1"></i> Create Postmortem
+    </a>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="get" class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label for="id_project" class="form-label">Project</label>
+                <select name="project" id="id_project" class="form-select">
+                    <option value="">All Projects</option>
+                    {% for proj in projects %}
+                    <option value="{{ proj.pk }}" {% if selected_project == proj.pk|stringformat:"s" %}selected{% endif %}>
+                        {{ proj.organization.name }} / {{ proj.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label for="id_ingestion_status" class="form-label">Ingestion Status</label>
+                <select name="ingestion_status" id="id_ingestion_status" class="form-select">
+                    <option value="">All Statuses</option>
+                    {% for val, label in ingestion_statuses %}
+                    <option value="{{ val }}" {% if selected_status == val %}selected{% endif %}>
+                        {{ label }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label for="id_search" class="form-label">Search</label>
+                <input type="search" name="search" id="id_search" class="form-control" placeholder="Search postmortems..." value="{{ search_query }}">
+            </div>
+            <div class="col-md-3 d-flex gap-2">
+                <button type="submit" class="btn btn-primary"><i class="bi bi-search me-1"></i> Filter</button>
+                <a href="{% url 'postmortem_list' %}" class="btn btn-outline-secondary">Clear</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        {% if postmortems %}
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>Title</th>
+                            <th>Incident</th>
+                            <th>Project</th>
+                            <th>Ingestion</th>
+                            <th>Processing</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for pm in postmortems %}
+                        <tr>
+                            <td>
+                                <a href="{% url 'postmortem_detail' pm.pk %}" class="text-decoration-none fw-medium">
+                                    {{ pm.title }}
+                                </a>
+                            </td>
+                            <td>
+                                <a href="{% url 'incident_detail' pm.incident.pk %}" class="text-decoration-none">
+                                    {{ pm.incident.title|truncatechars:40 }}
+                                </a>
+                            </td>
+                            <td>
+                                <a href="{% url 'project_detail' pm.incident.project.pk %}" class="text-decoration-none">
+                                    {{ pm.incident.project.name }}
+                                </a>
+                            </td>
+                            <td>
+                                <span class="badge ingestion-{{ pm.ingestion_status }}">
+                                    {{ pm.get_ingestion_status_display }}
+                                </span>
+                            </td>
+                            <td>
+                                <span class="badge ingestion-{{ pm.processing_status }}">
+                                    {{ pm.get_processing_status_display }}
+                                </span>
+                            </td>
+                            <td>{{ pm.created_at|date:"M d, Y H:i" }}</td>
+                            <td>
+                                <div class="btn-group btn-group-sm">
+                                    <a href="{% url 'postmortem_detail' pm.pk %}" class="btn btn-outline-primary" title="View"><i class="bi bi-eye"></i></a>
+                                    <a href="{% url 'postmortem_update' pm.pk %}" class="btn btn-outline-secondary" title="Edit"><i class="bi bi-pencil"></i></a>
+                                    {% if pm.ingestion_status == 'pending' or pm.ingestion_status == 'failed' %}
+                                    <a href="{% url 'postmortem_trigger_ingestion' pm.pk %}" class="btn btn-outline-success" title="Trigger Ingestion"><i class="bi bi-play-circle"></i></a>
+                                    {% endif %}
+                                    <a href="{% url 'postmortem_delete' pm.pk %}" class="btn btn-outline-danger" title="Delete" data-confirm="Are you sure you want to delete {{ pm.title }}?"><i class="bi bi-trash"></i></a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if is_paginated %}
+            <div class="card-footer">
+                <nav aria-label="Postmortems pagination">
+                    <ul class="pagination justify-content-center mb-0">
+                        {% if page_obj.has_previous %}
+                            <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}{% if selected_project %}&project={{ selected_project }}{% endif %}{% if selected_status %}&ingestion_status={{ selected_status }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}">Previous</a></li>
+                        {% endif %}
+                        {% for num in page_obj.paginator.page_range %}
+                            {% if page_obj.number == num %}<li class="page-item active"><span class="page-link">{{ num }}</span></li>
+                            {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}<li class="page-item"><a class="page-link" href="?page={{ num }}{% if selected_project %}&project={{ selected_project }}{% endif %}{% if selected_status %}&ingestion_status={{ selected_status }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}">{{ num }}</a></li>{% endif %}
+                        {% endfor %}
+                        {% if page_obj.has_next %}
+                            <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}{% if selected_project %}&project={{ selected_project }}{% endif %}{% if selected_status %}&ingestion_status={{ selected_status }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}">Next</a></li>
+                        {% endif %}
+                    </ul>
+                </nav>
+            </div>
+            {% endif %}
+        {% else %}
+            <div class="empty-state">
+                <i class="bi bi-file-earmark-text"></i>
+                <h5>No postmortems found</h5>
+                <p>{% if search_query or selected_project or selected_status %}Try adjusting your filters{% else %}Create your first postmortem to document incidents{% endif %}</p>
+                {% if not search_query and not selected_project and not selected_status %}
+                <a href="{% url 'postmortem_create' %}" class="btn btn-primary mt-2"><i class="bi bi-plus-circle me-1"></i> Create Postmortem</a>
+                {% endif %}
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

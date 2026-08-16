@@ -1,0 +1,291 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ incident.title }} - RAG Postmortem Intelligence{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="page-title d-flex align-items-center flex-wrap gap-2">
+            {{ incident.title }}
+            <span class="badge severity-{{ incident.severity|lower }}">{{ incident.get_severity_display }}</span>
+            <span class="badge status-{{ incident.status }}">{{ incident.get_status_display }}</span>
+        </h1>
+        <p class="page-subtitle">
+            <a href="{% url 'project_detail' incident.project.pk %}" class="text-decoration-none text-muted">
+                {{ incident.project.organization.name }} / {{ incident.project.name }}
+            </a>
+        </p>
+    </div>
+    <div class="btn-group">
+        {% if can_edit %}
+        <a href="{% url 'incident_update' incident.pk %}" class="btn btn-outline-secondary">
+            <i class="bi bi-pencil me-1"></i> Edit
+        </a>
+        {% endif %}
+        {% if incident.status != 'resolved' and incident.status != 'closed' %}
+        <a href="{% url 'incident_resolve' incident.pk %}" class="btn btn-success">
+            <i class="bi bi-check-circle me-1"></i> Resolve
+        {% endif %}
+        <div class="btn-group">
+            <button type="button" class="btn btn-primary dropdown-toggle" data-bs-toggle="dropdown">
+                <i class="bi bi-plus me-1"></i> Add
+            </button>
+            <ul class="dropdown-menu">
+                <li><a class="dropdown-item" href="{% url 'postmortem_create' %}?incident={{ incident.pk }}"><i class="bi bi-file-earmark-text me-2"></i>Postmortem</a></li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <!-- Incident Details -->
+    <div class="col-lg-8">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Description</h5>
+            </div>
+            <div class="card-body">
+                {% if incident.description %}
+                <p class="mb-0">{{ incident.description|linebreaks }}</p>
+                {% else %}
+                <p class="text-muted mb-0">No description provided.</p>
+                {% endif %}
+            </div>
+        </div>
+        
+        {% if incident.suspected_root_cause %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-search me-2"></i>Suspected Root Cause</h5>
+            </div>
+            <div class="card-body">
+                <p class="mb-0">{{ incident.suspected_root_cause|linebreaks }}</p>
+            </div>
+        </div>
+        {% endif %}
+        
+        {% if incident.confirmed_root_cause %}
+        <div class="card mb-4 border-success">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0"><i class="bi bi-check-circle me-2"></i>Confirmed Root Cause</h5>
+            </div>
+            <div class="card-body">
+                <p class="mb-0">{{ incident.confirmed_root_cause|linebreaks }}</p>
+            </div>
+        </div>
+        {% endif %}
+        
+        {% if incident.remediation %}
+        <div class="card mb-4 border-info">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0"><i class="bi bi-tools me-2"></i>Remediation</h5>
+            </div>
+            <div class="card-body">
+                <p class="mb-0">{{ incident.remediation|linebreaks }}</p>
+            </div>
+        </div>
+        {% endif %}
+        
+        <!-- Timeline -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-clock-history me-2"></i>Timeline</h5>
+            </div>
+            <div class="card-body">
+                <div class="timeline">
+                    <div class="timeline-item">
+                        <div class="timeline-marker bg-primary"></div>
+                        <div class="timeline-content">
+                            <h6 class="mb-1">Created</h6>
+                            <p class="mb-0 text-muted small">{{ incident.created_at|date:"M d, Y H:i" }} by {{ incident.created_by.full_name|default:incident.created_by.email }}</p>
+                        </div>
+                    </div>
+                    {% if incident.started_at %}
+                    <div class="timeline-item">
+                        <div class="timeline-marker bg-warning"></div>
+                        <div class="timeline-content">
+                            <h6 class="mb-1">Incident Started</h6>
+                            <p class="mb-0 text-muted small">{{ incident.started_at|date:"M d, Y H:i" }}</p>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if incident.detected_at %}
+                    <div class="timeline-item">
+                        <div class="timeline-marker bg-info"></div>
+                        <div class="timeline-content">
+                            <h6 class="mb-1">Incident Detected</h6>
+                            <p class="mb-0 text-muted small">{{ incident.detected_at|date:"M d, Y H:i" }}</p>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if incident.resolved_at %}
+                    <div class="timeline-item">
+                        <div class="timeline-marker bg-success"></div>
+                        <div class="timeline-content">
+                            <h6 class="mb-1">Incident Resolved</h6>
+                            <p class="mb-0 text-muted small">{{ incident.resolved_at|date:"M d, Y H:i" }}</p>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <!-- Affected Services -->
+        {% if incident.affected_services.all %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-server me-2"></i>Affected Services ({{ incident.affected_services.count }})</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-flex flex-wrap gap-2">
+                    {% for svc in incident.affected_services.all %}
+                    <a href="{% url 'service_detail' svc.pk %}" class="badge service-{{ svc.service_type }} text-decoration-none" style="font-size: 0.875rem; padding: 0.5rem 0.75rem;">
+                        {{ svc.name }}
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        
+        <!-- Postmortems -->
+        {% if postmortems %}
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-file-earmark-text me-2"></i>Postmortems ({{ postmortems.count }})</h5>
+                <a href="{% url 'postmortem_create' %}?incident={{ incident.pk }}" class="btn btn-sm btn-primary">
+                    <i class="bi bi-plus me-1"></i> Add Postmortem
+                </a>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Title</th>
+                                <th>Status</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for pm in postmortems %}
+                            <tr>
+                                <td>
+                                    <a href="{% url 'postmortem_detail' pm.pk %}" class="text-decoration-none fw-medium">
+                                        {{ pm.title }}
+                                    </a>
+                                </td>
+                                <td>
+                                    <span class="badge ingestion-{{ pm.ingestion_status }}">
+                                        {{ pm.get_ingestion_status_display }}
+                                    </span>
+                                </td>
+                                <td>{{ pm.created_at|date:"M d, Y H:i" }}</td>
+                                <td>
+                                    <a href="{% url 'postmortem_detail' pm.pk %}" class="btn btn-sm btn-outline-primary">
+                                        <i class="bi bi-eye"></i>
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    
+    <!-- Sidebar -->
+    <div class="col-lg-4">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Details</h5>
+            </div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-sm-4 text-muted small">Project</dt>
+                    <dd class="col-sm-8 mb-2">
+                        <a href="{% url 'project_detail' incident.project.pk %}" class="text-decoration-none">
+                            {{ incident.project.name }}
+                        </a>
+                    </dd>
+                    
+                    <dt class="col-sm-4 text-muted small">Created By</dt>
+                    <dd class="col-sm-8 mb-2">
+                        {{ incident.created_by.full_name|default:incident.created_by.email }}
+                    </dd>
+                    
+                    <dt class="col-sm-4 text-muted small">Created</dt>
+                    <dd class="col-sm-8 mb-2">{{ incident.created_at|date:"M d, Y H:i" }}</dd>
+                    
+                    {% if incident.started_at %}
+                    <dt class="col-sm-4 text-muted small">Started</dt>
+                    <dd class="col-sm-8 mb-2">{{ incident.started_at|date:"M d, Y H:i" }}</dd>
+                    {% endif %}
+                    
+                    {% if incident.detected_at %}
+                    <dt class="col-sm-4 text-muted small">Detected</dt>
+                    <dd class="col-sm-8 mb-2">{{ incident.detected_at|date:"M d, Y H:i" }}</dd>
+                    {% endif %}
+                    
+                    {% if incident.resolved_at %}
+                    <dt class="col-sm-4 text-muted small">Resolved</dt>
+                    <dd class="col-sm-8 mb-2">{{ incident.resolved_at|date:"M d, Y H:i" }}</dd>
+                    {% endif %}
+                    
+                    <dt class="col-sm-4 text-muted small">Metadata</dt>
+                    <dd class="col-sm-8 mb-0">
+                        {% if incident.metadata %}
+                        <pre class="mb-0 small">{{ incident.metadata|pprint }}</pre>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.timeline {
+    position: relative;
+    padding-left: 2rem;
+}
+.timeline::before {
+    content: '';
+    position: absolute;
+    left: 7px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background-color: #dee2e6;
+}
+.timeline-item {
+    position: relative;
+    padding-bottom: 1.5rem;
+}
+.timeline-marker {
+    position: absolute;
+    left: -2rem;
+    top: 0;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 3px solid white;
+    box-shadow: 0 0 0 2px #dee2e6;
+    z-index: 1;
+}
+.timeline-content h6 {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #212529;
+}
+.timeline-content p {
+    font-size: 0.75rem;
+}
+</style>
+{% endblock %}

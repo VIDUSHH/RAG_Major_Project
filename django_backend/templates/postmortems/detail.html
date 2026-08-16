@@ -1,0 +1,182 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ postmortem.title }} - RAG Postmortem Intelligence{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="page-title">{{ postmortem.title }}</h1>
+        <p class="page-subtitle">
+            <a href="{% url 'incident_detail' postmortem.incident.pk %}" class="text-decoration-none text-muted">
+                {{ postmortem.incident.title }}
+            </a>
+            <span class="text-muted mx-2">|</span>
+            <a href="{% url 'project_detail' postmortem.incident.project.pk %}" class="text-decoration-none text-muted">
+                {{ postmortem.incident.project.organization.name }} / {{ postmortem.incident.project.name }}
+            </a>
+        </p>
+    </div>
+    <div class="btn-group">
+        <a href="{% url 'postmortem_update' postmortem.pk %}" class="btn btn-outline-secondary">
+            <i class="bi bi-pencil me-1"></i> Edit
+        </a>
+        {% if can_trigger_ingestion %}
+        <a href="{% url 'postmortem_trigger_ingestion' postmortem.pk %}" class="btn btn-success">
+            <i class="bi bi-play-circle me-1"></i> Trigger Ingestion
+        </a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="row g-4">
+    <!-- Postmortem Details -->
+    <div class="col-lg-8">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Document Source</h5>
+            </div>
+            <div class="card-body">
+                <p class="mb-1"><strong>Source:</strong> <code>{{ postmortem.document_source }}</code></p>
+                
+                {% if postmortem.content_metadata %}
+                <div class="mb-0">
+                    <strong>Metadata:</strong>
+                    <pre class="mb-0 mt-1 small">{{ postmortem.content_metadata|pprint }}</pre>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Ingestion Pipeline Status -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-gear me-2"></i>Ingestion Pipeline</h5>
+                {% if can_trigger_ingestion %}
+                <a href="{% url 'postmortem_trigger_ingestion' postmortem.pk %}" class="btn btn-sm btn-success">
+                    <i class="bi bi-play-circle me-1"></i> Trigger Ingestion
+                </a>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <div class="p-3 border rounded">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h6 class="mb-0">Ingestion</h6>
+                                <span class="badge ingestion-{{ postmortem.ingestion_status }}">
+                                    {{ postmortem.get_ingestion_status_display }}
+                                </span>
+                            </div>
+                            <div class="progress" style="height: 8px;">
+                                <div class="progress-bar bg-{{ 'primary' if postmortem.ingestion_status == 'completed' else 'warning' if postmortem.ingestion_status == 'processing' else 'secondary' if postmortem.ingestion_status == 'pending' else 'danger' }}" 
+                                     style="width: {{ '100' if postmortem.ingestion_status == 'completed' else '50' if postmortem.ingestion_status == 'processing' else '0' if postmortem.ingestion_status == 'pending' else '0' }}%"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="p-3 border rounded">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h6 class="mb-0">Processing</h6>
+                                <span class="badge ingestion-{{ postmortem.processing_status }}">
+                                    {{ postmortem.get_processing_status_display }}
+                                </span>
+                            </div>
+                            <div class="progress" style="height: 8px;">
+                                <div class="progress-bar bg-{{ 'primary' if postmortem.processing_status == 'completed' else 'warning' if postmortem.processing_status == 'processing' else 'secondary' if postmortem.processing_status == 'pending' else 'danger' }}" 
+                                     style="width: {{ '100' if postmortem.processing_status == 'completed' else '50' if postmortem.processing_status == 'processing' else '0' if postmortem.processing_status == 'pending' else '0' }}%"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="p-3 border rounded">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h6 class="mb-0">Embeddings</h6>
+                                <span class="badge ingestion-{{ postmortem.embedding_status }}">
+                                    {{ postmortem.get_embedding_status_display }}
+                                </span>
+                            </div>
+                            <div class="progress" style="height: 8px;">
+                                <div class="progress-bar bg-{{ 'primary' if postmortem.embedding_status == 'completed' else 'warning' if postmortem.embedding_status == 'processing' else 'secondary' if postmortem.embedding_status == 'pending' else 'danger' }}" 
+                                     style="width: {{ '100' if postmortem.embedding_status == 'completed' else '50' if postmortem.embedding_status == 'processing' else '0' if postmortem.embedding_status == 'pending' else '0' }}%"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="p-3 border rounded">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h6 class="mb-0">Graph Indexing</h6>
+                                <span class="badge ingestion-{{ postmortem.graph_indexing_status }}">
+                                    {{ postmortem.get_graph_indexing_status_display }}
+                                </span>
+                            </div>
+                            <div class="progress" style="height: 8px;">
+                                <div class="progress-bar bg-{{ 'primary' if postmortem.graph_indexing_status == 'completed' else 'warning' if postmortem.graph_indexing_status == 'processing' else 'secondary' if postmortem.graph_indexing_status == 'pending' else 'danger' }}" 
+                                     style="width: {{ '100' if postmortem.graph_indexing_status == 'completed' else '50' if postmortem.graph_indexing_status == 'processing' else '0' if postmortem.graph_indexing_status == 'pending' else '0' }}%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Related Incident -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-exclamation-triangle me-2"></i>Related Incident</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="me-3">
+                        <span class="badge severity-{{ incident.severity|lower }}">{{ incident.get_severity_display }}</span>
+                        <span class="badge status-{{ incident.status }} ms-1">{{ incident.get_status_display }}</span>
+                    </div>
+                    <div>
+                        <a href="{% url 'incident_detail' incident.pk %}" class="text-decoration-none fw-medium">
+                            {{ incident.title }}
+                        </a>
+                        <div class="text-muted small">
+                            {{ incident.project.organization.name }} / {{ incident.project.name }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Sidebar -->
+    <div class="col-lg-4">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Details</h5>
+            </div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-sm-4 text-muted small">Created By</dt>
+                    <dd class="col-sm-8 mb-2">
+                        {{ postmortem.created_by.full_name|default:postmortem.created_by.email }}
+                    </dd>
+                    
+                    <dt class="col-sm-4 text-muted small">Created</dt>
+                    <dd class="col-sm-8 mb-2">{{ postmortem.created_at|date:"M d, Y H:i" }}</dd>
+                    
+                    <dt class="col-sm-4 text-muted small">Updated</dt>
+                    <dd class="col-sm-8 mb-2">{{ postmortem.updated_at|date:"M d, Y H:i" }}</dd>
+                    
+                    <dt class="col-sm-4 text-muted small">Overall Status</dt>
+                    <dd class="col-sm-8 mb-0">
+                        {% if postmortem.ingestion_status == 'completed' and postmortem.processing_status == 'completed' and postmortem.embedding_status == 'completed' and postmortem.graph_indexing_status == 'completed' %}
+                            <span class="badge bg-success">Fully Processed</span>
+                        {% elif postmortem.ingestion_status == 'failed' or postmortem.processing_status == 'failed' or postmortem.embedding_status == 'failed' or postmortem.graph_indexing_status == 'failed' %}
+                            <span class="badge bg-danger">Failed</span>
+                        {% elif postmortem.ingestion_status == 'processing' or postmortem.processing_status == 'processing' or postmortem.embedding_status == 'processing' or postmortem.graph_indexing_status == 'processing' %}
+                            <span class="badge bg-warning text-dark">Processing</span>
+                        {% else %}
+                            <span class="badge bg-secondary">Pending</span>
+                        {% endif %}
+                    </dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,112 @@
+{% extends 'base.html' %}
+
+{% block title %}Profile - RAG Postmortem Intelligence{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="page-title">Profile</h1>
+        <p class="page-subtitle">Manage your account settings</p>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-body text-center py-5">
+                <div class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3" style="width: 100px; height: 100px; font-size: 2.5rem;">
+                    {{ user.full_name|first|upper|default:user.email|first|upper }}
+                </div>
+                <h4 class="mb-1">{{ user.full_name|default:user.email }}</h4>
+                <p class="text-muted mb-0">{{ user.email }}</p>
+                {% if user.is_staff %}
+                <span class="badge bg-warning text-dark mt-2">Staff</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Account Information</h5>
+            </div>
+            <div class="card-body">
+                <dl class="row">
+                    <dt class="col-sm-3 text-muted">Email</dt>
+                    <dd class="col-sm-9">{{ user.email }}</dd>
+                    
+                    <dt class="col-sm-3 text-muted">Full Name</dt>
+                    <dd class="col-sm-9">{{ user.full_name|default:"Not set" }}</dd>
+                    
+                    <dt class="col-sm-3 text-muted">User ID</dt>
+                    <dd class="col-sm-9"><code>{{ user.id }}</code></dd>
+                    
+                    <dt class="col-sm-3 text-muted">Date Joined</dt>
+                    <dd class="col-sm-9">{{ user.date_joined|date:"M d, Y H:i" }}</dd>
+                    
+                    <dt class="col-sm-3 text-muted">Last Login</dt>
+                    <dd class="col-sm-9">{{ user.last_login|date:"M d, Y H:i"|default:"Never" }}</dd>
+                    
+                    <dt class="col-sm-3 text-muted">Status</dt>
+                    <dd class="col-sm-9">
+                        {% if user.is_active %}
+                        <span class="badge bg-success">Active</span>
+                        {% else %}
+                        <span class="badge bg-danger">Inactive</span>
+                        {% endif %}
+                        {% if user.is_staff %}
+                        <span class="badge bg-warning text-dark ms-1">Staff</span>
+                        {% endif %}
+                        {% if user.is_superuser %}
+                        <span class="badge bg-danger ms-1">Superuser</span>
+                        {% endif %}
+                    </dd>
+                </dl>
+            </div>
+        </div>
+        
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="mb-0">Memberships</h5>
+            </div>
+            <div class="card-body">
+                {% if user.organization_memberships.all %}
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Organization</th>
+                                <th>Role</th>
+                                <th>Joined</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for membership in user.organization_memberships.all %}
+                            <tr>
+                                <td>
+                                    <a href="{% url 'organization_detail' membership.organization.pk %}" class="text-decoration-none fw-medium">
+                                        {{ membership.organization.name }}
+                                    </a>
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary">{{ membership.get_role_display }}</span>
+                                </td>
+                                <td>{{ membership.joined_at|date:"M d, Y" }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="empty-state p-4">
+                    <i class="bi bi-people"></i>
+                    <h5>No memberships</h5>
+                    <p>You are not a member of any organizations yet.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

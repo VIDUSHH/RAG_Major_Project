@@ -1,0 +1,1 @@
+"""Log sources management application."""

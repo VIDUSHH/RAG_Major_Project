@@ -1,0 +1,105 @@
+{% extends 'base.html' %}
+
+{% block title %}Organizations - RAG Postmortem Intelligence{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="page-title">Organizations</h1>
+        <p class="page-subtitle">Manage your organizations and teams</p>
+    </div>
+    <a href="{% url 'organization_create' %}" class="btn btn-primary">
+        <i class="bi bi-plus-circle me-1"></i> Create Organization
+    </a>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        {% if organizations %}
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Projects</th>
+                            <th>Members</th>
+                            <th>Your Role</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for org in organizations %}
+                        <tr>
+                            <td>
+                                <a href="{% url 'organization_detail' org.pk %}" class="text-decoration-none fw-medium">
+                                    {{ org.name }}
+                                </a>
+                            </td>
+                            <td>{{ org.project_count }}</td>
+                            <td>{{ org.member_count }}</td>
+                            <td>
+                                <span class="badge bg-secondary">{{ org.memberships.all|first.role }}</span>
+                            </td>
+                            <td>{{ org.created_at|date:"M d, Y" }}</td>
+                            <td>
+                                <div class="btn-group btn-group-sm">
+                                    <a href="{% url 'organization_detail' org.pk %}" class="btn btn-outline-primary" title="View">
+                                        <i class="bi bi-eye"></i>
+                                    </a>
+                                    {% if org.memberships.all|first.role == "OWNER" or org.memberships.all|first.role == "ADMIN" %}
+                                    <a href="{% url 'organization_update' org.pk %}" class="btn btn-outline-secondary" title="Edit">
+                                        <i class="bi bi-pencil"></i>
+                                    </a>
+                                    <a href="{% url 'organization_delete' org.pk %}" class="btn btn-outline-danger" title="Delete" data-confirm="Are you sure you want to delete {{ org.name }}?">
+                                        <i class="bi bi-trash"></i>
+                                    </a>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            
+            {% if is_paginated %}
+            <div class="card-footer">
+                <nav aria-label="Organizations pagination">
+                    <ul class="pagination justify-content-center mb-0">
+                        {% if page_obj.has_previous %}
+                            <li class="page-item">
+                                <a class="page-link" href="?page={{ page_obj.previous_page_number }}">Previous</a>
+                            </li>
+                        {% endif %}
+                        
+                        {% for num in page_obj.paginator.page_range %}
+                            {% if page_obj.number == num %}
+                                <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+                            {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+                                <li class="page-item"><a class="page-link" href="?page={{ num }}">{{ num }}</a></li>
+                            {% endif %}
+                        {% endfor %}
+                        
+                        {% if page_obj.has_next %}
+                            <li class="page-item">
+                                <a class="page-link" href="?page={{ page_obj.next_page_number }}">Next</a>
+                            </li>
+                        {% endif %}
+                    </ul>
+                </nav>
+            </div>
+            {% endif %}
+        {% else %}
+            <div class="empty-state">
+                <i class="bi bi-building"></i>
+                <h5>No organizations yet</h5>
+                <p>Create your first organization to get started</p>
+                <a href="{% url 'organization_create' %}" class="btn btn-primary mt-2">
+                    <i class="bi bi-plus-circle me-1"></i> Create Organization
+                </a>
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG Postmortem Intelligence System</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <header class="header">
+            <div class="header-left">
+                <h1>RAG Postmortem Intelligence</h1>
+                <span class="badge">AI/Data Plane</span>
+            </div>
+            <div class="header-right">
+                <div class="connection-status" id="connectionStatus">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Connecting...</span>
+                </div>
+            </div>
+        </header>
+
+        <nav class="tabs" role="tablist">
+            <button class="tab-btn active" role="tab" data-tab="dashboard" aria-selected="true">Dashboard</button>
+            <button class="tab-btn" role="tab" data-tab="ingest" aria-selected="false">Ingest Files</button>
+            <button class="tab-btn" role="tab" data-tab="query" aria-selected="false">Analyze Incident</button>
+            <button class="tab-btn" role="tab" data-tab="vector-db" aria-selected="false">Vector DB</button>
+            <button class="tab-btn" role="tab" data-tab="graph-db" aria-selected="false">Graph DB</button>
+            <button class="tab-btn" role="tab" data-tab="system" aria-selected="false">System Status</button>
+        </nav>
+
+        <main class="main-content">
+            <!-- Dashboard Tab -->
+            <section class="tab-panel active" id="dashboard" role="tabpanel">
+                <div class="stats-grid" id="statsGrid">
+                    <div class="stat-card">
+                        <div class="stat-icon">📄</div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="statDocuments">-</span>
+                            <span class="stat-label">Documents</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">🧩</div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="statChunks">-</span>
+                            <span class="stat-label">Chunks</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">🔢</div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="statVectors">-</span>
+                            <span class="stat-label">Vectors</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">🔗</div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="statNodes">-</span>
+                            <span class="stat-label">Graph Nodes</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">🔄</div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="statRelationships">-</span>
+                            <span class="stat-label">Relationships</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">⚡</div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="statIncidents">-</span>
+                            <span class="stat-label">Incidents</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="recent-activity">
+                    <h2>Recent Activity</h2>
+                    <div class="activity-list" id="activityList">
+                        <p class="loading">Loading...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Ingest Tab -->
+            <section class="tab-panel" id="ingest" role="tabpanel">
+                <div class="panel-header">
+                    <h2>File Ingestion</h2>
+                    <p class="panel-description">Upload log files, postmortems, or documents for processing</p>
+                </div>
+
+                <div class="upload-zone" id="uploadZone">
+                    <input type="file" id="fileInput" multiple accept=".log,.txt,.json,.csv,.md,.markdown,.yaml,.yml" hidden>
+                    <div class="upload-content">
+                        <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+                        </svg>
+                        <p class="upload-text">Drag & drop files here or click to browse</p>
+                        <p class="upload-hint">Supports: .log, .txt, .json, .csv, .md, .yaml, .yml (max 100MB each)</p>
+                    </div>
+                </div>
+
+                <div class="upload-options">
+                    <div class="option-group">
+                        <label>Chunking Strategy</label>
+                        <select id="chunkingStrategy">
+                            <option value="hierarchical">Hierarchical (time-windowed)</option>
+                            <option value="semantic">Semantic (sentence-aware)</option>
+                            <option value="fixed">Fixed size</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="file-list" id="fileList"></div>
+
+                <button class="btn btn-primary" id="ingestBtn" disabled>Start Ingestion</button>
+
+                <div class="progress-section" id="progressSection" hidden>
+                    <h3>Ingestion Progress</h3>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar" id="progressBar"></div>
+                    </div>
+                    <div class="progress-details" id="progressDetails"></div>
+                </div>
+
+                <div class="results-section" id="resultsSection" hidden>
+                    <h3>Results</h3>
+                    <div class="results-table-container">
+                        <table class="results-table">
+                            <thead>
+                                <tr>
+                                    <th>File</th>
+                                    <th>Status</th>
+                                    <th>Entries</th>
+                                    <th>Chunks</th>
+                                    <th>Time</th>
+                                </tr>
+                            </thead>
+                            <tbody id="resultsBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Query Tab -->
+            <section class="tab-panel" id="query" role="tabpanel">
+                <div class="panel-header">
+                    <h2>Incident Analysis</h2>
+                    <p class="panel-description">Enter a natural language query about an incident or issue</p>
+                </div>
+
+                <div class="query-section">
+                    <div class="query-input-group">
+                        <textarea
+                            id="queryInput"
+                            placeholder="Describe the incident or issue...&#10;&#10;Examples:&#10;• Why did the payment service fail last night?&#10;• The authentication service is returning intermittent 500 errors. What previous incidents are related?&#10;• Which components should I investigate first for the checkout failure?&#10;• What fixes worked previously for database timeouts?"
+                            rows="6"
+                        ></textarea>
+                    </div>
+                    <div class="query-options">
+                        <div class="option-group">
+                            <label>Top K Results</label>
+                            <input type="number" id="topK" value="10" min="1" max="50">
+                        </div>
+                    </div>
+                    <button class="btn btn-primary btn-large" id="analyzeBtn">Analyze Incident</button>
+                </div>
+
+                <div class="example-queries">
+                    <h4>Example Queries</h4>
+                    <div class="example-chips" id="exampleChips"></div>
+                </div>
+
+                <div class="response-section" id="responseSection" hidden>
+                    <div class="response-header">
+                        <h3>Incident Analysis Report</h3>
+                        <div class="response-meta">
+                            <span class="confidence-badge" id="confidenceBadge">Confidence: -</span>
+                            <span class="response-time" id="responseTime">-</span>
+                        </div>
+                    </div>
+
+                    <div class="response-tabs" role="tablist">
+                        <button class="response-tab-btn active" role="tab" data-response-tab="summary" aria-selected="true">Summary</button>
+                        <button class="response-tab-btn" role="tab" data-response-tab="evidence" aria-selected="false">Evidence</button>
+                        <button class="response-tab-btn" role="tab" data-response-tab="graph" aria-selected="false">Graph</button>
+                        <button class="response-tab-btn" role="tab" data-response-tab="recommendations" aria-selected="false">Recommendations</button>
+                        <button class="response-tab-btn" role="tab" data-response-tab="raw" aria-selected="false">Raw JSON</button>
+                    </div>
+
+                    <div class="response-tab-panels">
+                        <div class="response-tab-panel active" id="summary" role="tabpanel">
+                            <div class="summary-grid">
+                                <div class="summary-card">
+                                    <h4>Incident Details</h4>
+                                    <dl id="incidentDetails"></dl>
+                                </div>
+                                <div class="summary-card">
+                                    <h4>Root Cause Analysis</h4>
+                                    <div class="root-cause">
+                                        <h5>Potential Root Cause</h5>
+                                        <p id="potentialRootCause">-</p>
+                                        <h5>Root Cause (from evidence)</h5>
+                                        <p id="rootCause">-</p>
+                                    </div>
+                                </div>
+                                <div class="summary-card full-width">
+                                    <h4>Impact & Resolution</h4>
+                                    <dl id="impactResolution"></dl>
+                                </div>
+                                <div class="summary-card full-width">
+                                    <h4>Timeline</h4>
+                                    <div class="timeline" id="timeline"></div>
+                                </div>
+                                <div class="summary-card full-width">
+                                    <h4>Lessons Learned</h4>
+                                    <ul id="lessonsLearned"></ul>
+                                </div>
+                                <div class="summary-card full-width">
+                                    <h4>Log Snippets</h4>
+                                    <div class="log-snippets" id="logSnippets"></div>
+                                </div>
+                                <div class="summary-card full-width">
+                                    <h4>Tags</h4>
+                                    <div class="tags" id="tags"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="response-tab-panel" id="evidence" role="tabpanel">
+                            <div class="evidence-list" id="evidenceList"></div>
+                        </div>
+
+                        <div class="response-tab-panel" id="graph" role="tabpanel">
+                            <div class="graph-viz" id="graphViz"></div>
+                            <div class="graph-relationships" id="graphRelationships"></div>
+                        </div>
+
+                        <div class="response-tab-panel" id="recommendations" role="tabpanel">
+                            <div class="recommendations-list" id="recommendationsList"></div>
+                        </div>
+
+                        <div class="response-tab-panel" id="raw" role="tabpanel">
+                            <pre class="json-viewer" id="jsonViewer"></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="loading-overlay" id="loadingOverlay" hidden>
+                    <div class="spinner"></div>
+                    <div class="loading-steps" id="loadingSteps"></div>
+                </div>
+            </section>
+
+            <!-- Vector DB Tab -->
+            <section class="tab-panel" id="vector-db" role="tabpanel">
+                <div class="panel-header">
+                    <h2>Vector Database (Qdrant)</h2>
+                </div>
+
+                <div class="db-controls">
+                    <div class="control-group">
+                        <input type="text" id="vectorSearchQuery" placeholder="Search query...">
+                        <button class="btn btn-secondary" id="vectorSearchBtn">Search</button>
+                    </div>
+                    <div class="control-group">
+                        <select id="vectorFilterService">
+                            <option value="">All Services</option>
+                        </select>
+                        <select id="vectorFilterLevel">
+                            <option value="">All Levels</option>
+                            <option value="DEBUG">DEBUG</option>
+                            <option value="INFO">INFO</option>
+                            <option value="WARN">WARN</option>
+                            <option value="ERROR">ERROR</option>
+                            <option value="CRITICAL">CRITICAL</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="db-stats" id="vectorStats"></div>
+
+                <div class="results-table-container">
+                    <table class="results-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Score</th>
+                                <th>Source</th>
+                                <th>Service</th>
+                                <th>Timestamp</th>
+                                <th>Preview</th>
+                            </tr>
+                        </thead>
+                        <tbody id="vectorResultsBody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Graph DB Tab -->
+            <section class="tab-panel" id="graph-db" role="tabpanel">
+                <div class="panel-header">
+                    <h2>Graph Database (Neo4j)</h2>
+                </div>
+
+                <div class="db-controls">
+                    <div class="control-group">
+                        <select id="graphNodeType">
+                            <option value="">All Node Types</option>
+                            <option value="Service">Service</option>
+                            <option value="Incident">Incident</option>
+                            <option value="LogEntry">LogEntry</option>
+                            <option value="Error">Error</option>
+                            <option value="Fix">Fix</option>
+                            <option value="Lesson">Lesson</option>
+                        </select>
+                        <button class="btn btn-secondary" id="graphLoadBtn">Load Nodes</button>
+                    </div>
+                </div>
+
+                <div class="db-stats" id="graphStats"></div>
+
+                <div class="results-table-container">
+                    <table class="results-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Type</th>
+                                <th>Properties</th>
+                            </tr>
+                        </thead>
+                        <tbody id="graphNodesBody"></tbody>
+                    </table>
+                </div>
+
+                <div class="section-divider"></div>
+
+                <h3>Service Dependency Graph</h3>
+                <div class="control-group">
+                    <input type="text" id="serviceGraphInput" placeholder="Service name (e.g., payment-service)">
+                    <button class="btn btn-secondary" id="serviceGraphBtn">Show Dependencies</button>
+                </div>
+                <div class="graph-viz" id="serviceGraphViz"></div>
+            </section>
+
+            <!-- System Status Tab -->
+            <section class="tab-panel" id="system" role="tabpanel">
+                <div class="panel-header">
+                    <h2>System Status</h2>
+                </div>
+
+                <div class="status-grid" id="statusGrid">
+                    <div class="status-card">
+                        <h3>Qdrant (Vector DB)</h3>
+                        <div class="status-indicator" id="qdrantStatus">
+                            <span class="status-dot"></span>
+                            <span>Checking...</span>
+                        </div>
+                        <div class="status-details" id="qdrantDetails"></div>
+                    </div>
+                    <div class="status-card">
+                        <h3>Neo4j (Graph DB)</h3>
+                        <div class="status-indicator" id="neo4jStatus">
+                            <span class="status-dot"></span>
+                            <span>Checking...</span>
+                        </div>
+                        <div class="status-details" id="neo4jDetails"></div>
+                    </div>
+                    <div class="status-card">
+                        <h3>PostgreSQL (Control Plane)</h3>
+                        <div class="status-indicator" id="postgresStatus">
+                            <span class="status-dot"></span>
+                            <span>Via Django</span>
+                        </div>
+                    </div>
+                    <div class="status-card">
+                        <h3>LLM (Gemini)</h3>
+                        <div class="status-indicator" id="llmStatus">
+                            <span class="status-dot"></span>
+                            <span>Checking...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="status-actions">
+                    <button class="btn btn-secondary" id="refreshStatusBtn">Refresh Status</button>
+                </div>
+            </section>
+        </main>
+
+        <footer class="footer">
+            <p>RAG Postmortem Intelligence System - Built for Production Incident Analysis</p>
+        </footer>
+    </div>
+
+    <script>
+        window.RAG_CONFIG = {
+            apiKey: __INTERNAL_API_KEY__
+        };
+    </script>
+    <script src="app.js"></script>
+</body>
+</html>
