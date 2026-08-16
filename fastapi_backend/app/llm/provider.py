@@ -56,6 +56,7 @@ _ALLOWED_STATUSES = {"resolved", "mitigated", "open", "investigating"}
 _ALLOWED_SEVERITIES = {"P0", "P1", "P2", "P3"}
 _ALLOWED_RISKS = {"Critical", "High", "Medium", "Low"}
 _ALLOWED_CONFIDENCE = {"High", "Medium", "Low", "Insufficient Evidence"}
+_LLM_TIMEOUT_S = 60.0
 
 
 def _normalize_str(value: Any, allowed: set[str] | None, default: str) -> str:
@@ -326,7 +327,11 @@ class GeminiProvider(LLMProvider):
         model = self._get_model()
 
         try:
-            response = model.generate_content(prompt, **kwargs)
+            response = model.generate_content(
+                prompt,
+                request_options={"timeout": _LLM_TIMEOUT_S},
+                **kwargs,
+            )
             duration_ms = (time.time() - start_time) * 1000
 
             return LLMResponse(
@@ -363,6 +368,7 @@ Do not include any explanation, markdown, or text outside the JSON object."""
                     max_output_tokens=self.config.max_output_tokens,
                     response_mime_type="application/json",
                 ),
+                request_options={"timeout": _LLM_TIMEOUT_S},
             )
             return json.loads(response.text)
         except json.JSONDecodeError as e:

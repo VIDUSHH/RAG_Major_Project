@@ -190,6 +190,7 @@ Runs the FastAPI contract tests and the full Django control-plane suite (120 tes
 - **Hybrid retrieval actually uses both channels.** The BM25 sparse index is built lazily from the Qdrant collection on first query and refreshed as new points arrive, so RRF fuses dense + sparse results (the cross-encoder reranker is disabled in the lean Docker image).
 - **Incident analyses are server-grounded.** The LLM writes the narrative (title, root cause, recommendations) but `incident_id`, `evidence`, `sources` and `graph_relationships` are always rebuilt from the actual retrieved chunks, so the API can never cite fabricated sources. Enum fields are normalized and a malformed/unavailable LLM degrades to a grounded fallback instead of a 500.
 - **Postmortem ingestion is wired end-to-end.** Besides file uploads (`/ingest`, `/ingest/batch`), the data plane accepts direct text via `/ingest/text`; the Django control plane's "Trigger Ingestion" button on a postmortem calls it through `FastAPIClient.trigger_postmortem_ingestion` and reflects `completed`/`failed` status back on the record.
+- **Interactive requests never hang silently.** Gemini calls carry explicit timeouts (60s LLM, 30s/60s embeddings) and retries respect a hard deadline, so a rate-limited provider fails fast with a clear error instead of spinning. The SPA's Analyze screen shows animated progress + an elapsed timer and aborts after 60s with a friendly timeout message.
 
 ## API Surface (FastAPI data plane, under `/api/v1`)
 

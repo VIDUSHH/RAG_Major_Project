@@ -16,6 +16,10 @@ from app.core.config import settings
 from app.core.logging import logger
 
 _RETRY_HINT_RE = re.compile(r"retry in\s+([\d.]+)\s*s", re.IGNORECASE)
+_QUERY_TIMEOUT_S = 30.0
+_DOC_TIMEOUT_S = 60.0
+_QUERY_DEADLINE_S = 30.0
+_DOC_DEADLINE_S = 120.0
 _MAX_RETRY_SLEEP = 60.0
 
 
@@ -193,6 +197,7 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
 
     def embed_documents(self, texts: list[str]) -> EmbeddingResult:
         start_time = time.time()
+        deadline = start_time + _DOC_DEADLINE_S
         client = self._get_client()
 
         total_batches = (len(texts) + self.config.batch_size - 1) // self.config.batch_size
@@ -207,6 +212,7 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
                         content=batch,
                         task_type="retrieval_document",
                         output_dimensionality=self.config.dimension,
+                        request_options={"timeout": _DOC_TIMEOUT_S},
                     )
                     all_embeddings.extend(result["embedding"])
                     if batch_no == 1 or batch_no % 10 == 0 or batch_no == total_batches:
@@ -219,6 +225,9 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
                     if attempt == self.config.max_retries - 1:
                         raise
                     delay = _retry_delay(e, attempt, self.config.retry_delay)
+                    if time.time() + delay > deadline:
+                        logger.warning("Embedding deadline exceeded, aborting retries")
+                        raise
                     logger.warning(
                         f"Embedding batch {batch_no}/{total_batches} failed ({e}); "
                         f"retrying in {delay:.0f}s (attempt {attempt + 1})"
@@ -236,6 +245,7 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
 
     def embed_query(self, text: str) -> list[float]:
         client = self._get_client()
+        deadline = time.time() + _QUERY_DEADLINE_S
 
         for attempt in range(self.config.max_retries):
             try:
@@ -244,12 +254,18 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
                     content=text,
                     task_type="retrieval_query",
                     output_dimensionality=self.config.dimension,
+                    request_options={"timeout": _QUERY_TIMEOUT_S},
                 )
                 return result["embedding"]
             except Exception as e:
                 if attempt == self.config.max_retries - 1:
                     raise
-                time.sleep(_retry_delay(e, attempt, self.config.retry_delay))
+                delay = _retry_delay(e, attempt, self.config.retry_delay)
+                if time.time() + delay > deadline:
+                    logger.warning("Query embedding deadline exceeded, aborting retries")
+                    raise
+                logger.warning(f"Query embedding failed ({e}); retrying in {delay:.0f}s")
+                time.sleep(delay)
 
     @property
     def dimension(self) -> int:

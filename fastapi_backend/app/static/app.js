@@ -352,29 +352,67 @@ class RAGApp {
             return;
         }
 
-        this.showLoading(true);
-        this.updateLoadingSteps([
-            { text: 'Understanding query...', active: true },
+        const steps = [
+            { text: 'Understanding query...' },
             { text: 'Searching vector database...' },
             { text: 'Searching graph database...' },
             { text: 'Ranking evidence...' },
             { text: 'Generating incident analysis...' },
-        ]);
+        ];
+        this.showLoading(true);
+        this.updateLoadingSteps(steps);
+        this.startLoadingProgress(steps);
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 60000);
 
         try {
             const response = await this.api('/query/analyze', {
                 method: 'POST',
                 body: JSON.stringify({ query, top_k: topK }),
+                signal: controller.signal,
             });
 
+            this.stopLoadingProgress();
             this.showLoading(false);
             this.displayResponse(response);
             document.getElementById('responseSection').hidden = false;
             document.getElementById('responseSection').scrollIntoView({ behavior: 'smooth' });
         } catch (e) {
+            this.stopLoadingProgress();
             this.showLoading(false);
             console.error('Analysis failed:', e);
-            this.showToast('Analysis failed: ' + e.message, 'error');
+            const message = e && e.name === 'AbortError'
+                ? 'Analysis timed out after 60s. The LLM provider may be rate-limited; try again shortly.'
+                : (e && e.message) || 'Unknown error';
+            this.showToast('Analysis failed: ' + message, 'error');
+        } finally {
+            clearTimeout(timeout);
+        }
+    }
+
+    startLoadingProgress(steps) {
+        this._loadingStart = Date.now();
+        this._loadingTimer = setInterval(() => {
+            const elapsed = Math.round((Date.now() - this._loadingStart) / 1000);
+            const activeIndex = Math.min(steps.length - 1, Math.floor(elapsed / 4));
+            this.updateLoadingSteps(steps.map((step, i) => ({
+                text: step.text,
+                active: i === activeIndex,
+                completed: i < activeIndex,
+            })));
+
+            const hint = document.getElementById('loadingHint');
+            if (hint) {
+                hint.textContent = `Working... ${elapsed}s. Analysis can take up to a minute on the free tier.`;
+            }
+        }, 1000);
+    }
+
+    stopLoadingProgress() {
+        if (this._loadingTimer) {
+            clearInterval(this._loadingTimer);
+            this._loadingTimer = null;
         }
     }
 
