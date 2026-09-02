@@ -1,0 +1,89 @@
+{% extends 'base.html' %}
+
+{% block title %}Add Log Source - RAG Postmortem Intelligence{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="page-title">Add Log Source</h1>
+        <p class="page-subtitle">Configure a new log ingestion source</p>
+    </div>
+    <a href="{% url 'logsource_list' %}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i> Back to List
+    </a>
+</div>
+
+<div class="row justify-content-center">
+    <div class="col-md-10 col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Log Source Configuration</h5>
+            </div>
+            <div class="card-body">
+                <form method="post" novalidate>
+                    {% csrf_token %}
+                    
+                    <div class="mb-3">
+                        <label for="{{ form.project.id_for_label }}" class="form-label">Project <span class="text-danger">*</span></label>
+                        {{ form.project }}
+                        {% if form.project.errors %}
+                            <div class="invalid-feedback d-block">{{ form.project.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="{{ form.name.id_for_label }}" class="form-label">Name <span class="text-danger">*</span></label>
+                        {{ form.name }}
+                        {% if form.name.errors %}
+                            <div class="invalid-feedback d-block">{{ form.name.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="{{ form.source_type.id_for_label }}" class="form-label">Source Type <span class="text-danger">*</span></label>
+                        {{ form.source_type }}
+                        {% if form.source_type.errors %}
+                            <div class="invalid-feedback d-block">{{ form.source_type.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="{{ form.config.id_for_label }}" class="form-label">Configuration (JSON) <span class="text-danger">*</span></label>
+                        {{ form.config }}
+                        {% if form.config.errors %}
+                            <div class="invalid-feedback d-block">{{ form.config.errors.0 }}</div>
+                        {% endif %}
+                        <div class="form-text">
+                            JSON configuration specific to the source type.
+                            <br><strong>Examples:</strong>
+                            <ul class="mb-0 mt-1">
+                                <li><strong>Filebeat:</strong> <code>{"paths": ["/var/log/*.log"], "fields": {"service": "web"}}</code></li>
+                                <li><strong>Fluentd:</strong> <code>{"host": "fluentd.example.com", "port": 24224, "tag": "app.logs"}</code></li>
+                                <li><strong>Kafka:</strong> <code>{"bootstrap_servers": ["kafka:9092"], "topic": "application-logs", "group_id": "rag-consumer"}</code></li>
+                                <li><strong>API:</strong> <code>{"endpoint": "https://api.example.com/logs", "auth_token": "xxx", "poll_interval": 60}</code></li>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3 form-check">
+                        {{ form.is_active }}
+                        <label class="form-check-label" for="{{ form.is_active.id_for_label }}">
+                            Active (enable log ingestion)
+                        </label>
+                        {% if form.is_active.errors %}
+                            <div class="invalid-feedback d-block">{{ form.is_active.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="d-flex justify-content-end gap-2">
+                        <a href="{% url 'logsource_list' %}" class="btn btn-outline-secondary">Cancel</a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-circle me-1"></i> Create Log Source
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

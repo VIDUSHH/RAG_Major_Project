@@ -1,0 +1,306 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ project.name }} - {{ project.organization.name }} - RAG Postmortem Intelligence{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="page-title">{{ project.name }}</h1>
+        <p class="page-subtitle">
+            <a href="{% url 'organization_detail' project.organization.pk %}" class="text-decoration-none text-muted">
+                {{ project.organization.name }}
+            </a>
+        </p>
+    </div>
+    <div class="btn-group">
+        {% if user_role in "OWNER,ADMIN,ENGINEER" %}
+        <a href="{% url 'project_update' project.pk %}" class="btn btn-outline-secondary">
+            <i class="bi bi-pencil me-1"></i> Edit
+        </a>
+        {% endif %}
+        <div class="btn-group">
+            <button type="button" class="btn btn-primary dropdown-toggle" data-bs-toggle="dropdown">
+                <i class="bi bi-plus me-1"></i> Add
+            </button>
+            <ul class="dropdown-menu">
+                <li><a class="dropdown-item" href="{% url 'service_create' %}?project={{ project.pk }}"><i class="bi bi-server me-2"></i>Service</a></li>
+                <li><a class="dropdown-item" href="{% url 'incident_create' %}?project={{ project.pk }}"><i class="bi bi-exclamation-triangle me-2"></i>Incident</a></li>
+                <li><a class="dropdown-item" href="{% url 'logsource_create' %}?project={{ project.pk }}"><i class="bi bi-hdd-network me-2"></i>Log Source</a></li>
+                <li><a class="dropdown-item" href="{% url 'postmortem_create' %}"><i class="bi bi-file-earmark-text me-2"></i>Postmortem</a></li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <!-- Stats -->
+    <div class="col-xl-3 col-md-6">
+        <div class="card card-stat h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="stat-label">Services</div>
+                        <div class="stat-value">{{ service_count }}</div>
+                    </div>
+                    <i class="bi bi-server stat-icon"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+        <div class="card card-stat-warning h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="stat-label">Open Incidents</div>
+                        <div class="stat-value">{{ open_incident_count }}</div>
+                    </div>
+                    <i class="bi bi-exclamation-triangle stat-icon"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+        <div class="card card-stat-success h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="stat-label">Total Incidents</div>
+                        <div class="stat-value">{{ incident_count }}</div>
+                    </div>
+                    <i class="bi bi-list-ul stat-icon"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+        <div class="card card-stat-info h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="stat-label">Active Log Sources</div>
+                        <div class="stat-value">{{ log_source_count }}</div>
+                    </div>
+                    <i class="bi bi-hdd-network stat-icon"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mt-2">
+    <!-- Services -->
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-server me-2"></i>Services</h5>
+                <a href="{% url 'service_list' %}?project={{ project.pk }}" class="btn btn-sm btn-outline-primary">View All</a>
+            </div>
+            <div class="card-body p-0">
+                {% if services %}
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Type</th>
+                                    <th>Incidents</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for service in services %}
+                                <tr>
+                                    <td>
+                                        <a href="{% url 'service_detail' service.pk %}" class="text-decoration-none fw-medium">
+                                            {{ service.name }}
+                                        </a>
+                                    </td>
+                                    <td>
+                                        <span class="badge service-{{ service.service_type }}">
+                                            {{ service.get_service_type_display }}
+                                        </span>
+                                    </td>
+                                    <td>{{ service.incident_count }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="empty-state">
+                        <i class="bi bi-server"></i>
+                        <h5>No services registered</h5>
+                        <p>Register services to track incidents</p>
+                        <a href="{% url 'service_create' %}?project={{ project.pk }}" class="btn btn-primary btn-sm mt-2">
+                            <i class="bi bi-plus-circle me-1"></i> Add Service
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Recent Incidents -->
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-exclamation-triangle me-2"></i>Recent Incidents</h5>
+                <a href="{% url 'incident_list' %}?project={{ project.pk }}" class="btn btn-sm btn-outline-primary">View All</a>
+            </div>
+            <div class="card-body p-0">
+                {% if incidents %}
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Title</th>
+                                    <th>Severity</th>
+                                    <th>Status</th>
+                                    <th>Created</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for incident in incidents %}
+                                <tr>
+                                    <td>
+                                        <a href="{% url 'incident_detail' incident.pk %}" class="text-decoration-none fw-medium">
+                                            {{ incident.title|truncatechars:40 }}
+                                        </a>
+                                    </td>
+                                    <td>
+                                        <span class="badge severity-{{ incident.severity|lower }}">
+                                            {{ incident.get_severity_display }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="badge status-{{ incident.status }}">
+                                            {{ incident.get_status_display }}
+                                        </span>
+                                    </td>
+                                    <td>{{ incident.created_at|date:"M d, H:i" }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="empty-state">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <h5>No incidents</h5>
+                        <p>Create incidents to track issues</p>
+                        <a href="{% url 'incident_create' %}?project={{ project.pk }}" class="btn btn-primary btn-sm mt-2">
+                            <i class="bi bi-plus-circle me-1"></i> Create Incident
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Recent Postmortems -->
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-file-earmark-text me-2"></i>Recent Postmortems</h5>
+                <a href="{% url 'postmortem_list' %}?project={{ project.pk }}" class="btn btn-sm btn-outline-primary">View All</a>
+            </div>
+            <div class="card-body p-0">
+                {% if postmortems %}
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Title</th>
+                                    <th>Incident</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for pm in postmortems %}
+                                <tr>
+                                    <td>
+                                        <a href="{% url 'postmortem_detail' pm.pk %}" class="text-decoration-none fw-medium">
+                                            {{ pm.title|truncatechars:40 }}
+                                        </a>
+                                    </td>
+                                    <td>
+                                        <a href="{% url 'incident_detail' pm.incident.pk %}" class="text-decoration-none text-muted small">
+                                            {{ pm.incident.title|truncatechars:30 }}
+                                        </a>
+                                    </td>
+                                    <td>
+                                        <span class="badge ingestion-{{ pm.ingestion_status }}">
+                                            {{ pm.get_ingestion_status_display }}
+                                        </span>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="empty-state">
+                        <i class="bi bi-file-earmark-text"></i>
+                        <h5>No postmortems</h5>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Log Sources -->
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-hdd-network me-2"></i>Log Sources</h5>
+                <a href="{% url 'logsource_list' %}?project={{ project.pk }}" class="btn btn-sm btn-outline-primary">View All</a>
+            </div>
+            <div class="card-body p-0">
+                {% if log_sources %}
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Type</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for ls in log_sources %}
+                                <tr>
+                                    <td>
+                                        <a href="{% url 'logsource_detail' ls.pk %}" class="text-decoration-none fw-medium">
+                                            {{ ls.name }}
+                                        </a>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-info">{{ ls.get_source_type_display }}</span>
+                                    </td>
+                                    <td>
+                                        {% if ls.is_active %}
+                                            <span class="badge bg-success">Active</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">Inactive</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="empty-state">
+                        <i class="bi bi-hdd-network"></i>
+                        <h5>No log sources configured</h5>
+                        <p>Add log sources to ingest logs</p>
+                        <a href="{% url 'logsource_create' %}?project={{ project.pk }}" class="btn btn-primary btn-sm mt-2">
+                            <i class="bi bi-plus-circle me-1"></i> Add Log Source
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

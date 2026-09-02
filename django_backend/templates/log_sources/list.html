@@ -1,0 +1,149 @@
+{% extends 'base.html' %}
+
+{% block title %}Log Sources - RAG Postmortem Intelligence{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="page-title">Log Sources</h1>
+        <p class="page-subtitle">Configure and manage log ingestion sources</p>
+    </div>
+    <a href="{% url 'logsource_create' %}" class="btn btn-primary">
+        <i class="bi bi-plus-circle me-1"></i> Add Log Source
+    </a>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="get" class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label for="id_project" class="form-label">Project</label>
+                <select name="project" id="id_project" class="form-select">
+                    <option value="">All Projects</option>
+                    {% for proj in projects %}
+                    <option value="{{ proj.pk }}" {% if selected_project == proj.pk|stringformat:"s" %}selected{% endif %}>
+                        {{ proj.organization.name }} / {{ proj.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label for="id_source_type" class="form-label">Type</label>
+                <select name="source_type" id="id_source_type" class="form-select">
+                    <option value="">All Types</option>
+                    {% for val, label in source_types %}
+                    <option value="{{ val }}" {% if selected_type == val %}selected{% endif %}>
+                        {{ label }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label for="id_is_active" class="form-label">Status</label>
+                <select name="is_active" id="id_is_active" class="form-select">
+                    <option value="">All</option>
+                    <option value="true" {% if selected_active == 'true' %}selected{% endif %}>Active</option>
+                    <option value="false" {% if selected_active == 'false' %}selected{% endif %}>Inactive</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label for="id_search" class="form-label">Search</label>
+                <input type="search" name="search" id="id_search" class="form-control" placeholder="Search log sources..." value="{{ search_query }}">
+            </div>
+            <div class="col-md-2 d-flex gap-2">
+                <button type="submit" class="btn btn-primary"><i class="bi bi-search me-1"></i> Filter</button>
+                <a href="{% url 'logsource_list' %}" class="btn btn-outline-secondary">Clear</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        {% if log_sources %}
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Project</th>
+                            <th>Type</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ls in log_sources %}
+                        <tr>
+                            <td>
+                                <a href="{% url 'logsource_detail' ls.pk %}" class="text-decoration-none fw-medium">
+                                    {{ ls.name }}
+                                </a>
+                            </td>
+                            <td>
+                                <a href="{% url 'project_detail' ls.project.pk %}" class="text-decoration-none">
+                                    {{ ls.project.organization.name }} / {{ ls.project.name }}
+                                </a>
+                            </td>
+                            <td>
+                                <span class="badge bg-info">{{ ls.get_source_type_display }}</span>
+                            </td>
+                            <td>
+                                {% if ls.is_active %}
+                                <span class="badge bg-success">Active</span>
+                                {% else %}
+                                <span class="badge bg-secondary">Inactive</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ ls.created_at|date:"M d, Y H:i" }}</td>
+                            <td>
+                                <div class="btn-group btn-group-sm">
+                                    <a href="{% url 'logsource_detail' ls.pk %}" class="btn btn-outline-primary" title="View"><i class="bi bi-eye"></i></a>
+                                    <a href="{% url 'logsource_update' ls.pk %}" class="btn btn-outline-secondary" title="Edit"><i class="bi bi-pencil"></i></a>
+                                    <a href="{% url 'logsource_toggle_active' ls.pk %}" class="btn btn-outline-{{ 'warning' if ls.is_active else 'success' }}" title="{{ 'Deactivate' if ls.is_active else 'Activate' }}">
+                                        {% if ls.is_active %}
+                                        <i class="bi bi-pause-circle"></i>
+                                        {% else %}
+                                        <i class="bi bi-play-circle"></i>
+                                        {% endif %}
+                                    </a>
+                                    <a href="{% url 'logsource_delete' ls.pk %}" class="btn btn-outline-danger" title="Delete" data-confirm="Are you sure you want to delete {{ ls.name }}?"><i class="bi bi-trash"></i></a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if is_paginated %}
+            <div class="card-footer">
+                <nav aria-label="Log Sources pagination">
+                    <ul class="pagination justify-content-center mb-0">
+                        {% if page_obj.has_previous %}
+                            <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}{% if selected_project %}&project={{ selected_project }}{% endif %}{% if selected_type %}&source_type={{ selected_type }}{% endif %}{% if selected_active %}&is_active={{ selected_active }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}">Previous</a></li>
+                        {% endif %}
+                        {% for num in page_obj.paginator.page_range %}
+                            {% if page_obj.number == num %}<li class="page-item active"><span class="page-link">{{ num }}</span></li>
+                            {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}<li class="page-item"><a class="page-link" href="?page={{ num }}{% if selected_project %}&project={{ selected_project }}{% endif %}{% if selected_type %}&source_type={{ selected_type }}{% endif %}{% if selected_active %}&is_active={{ selected_active }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}">{{ num }}</a></li>{% endif %}
+                        {% endfor %}
+                        {% if page_obj.has_next %}
+                            <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}{% if selected_project %}&project={{ selected_project }}{% endif %}{% if selected_type %}&source_type={{ selected_type }}{% endif %}{% if selected_active %}&is_active={{ selected_active }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}">Next</a></li>
+                        {% endif %}
+                    </ul>
+                </nav>
+            </div>
+            {% endif %}
+        {% else %}
+            <div class="empty-state">
+                <i class="bi bi-hdd-network"></i>
+                <h5>No log sources configured</h5>
+                <p>{% if search_query or selected_project or selected_type or selected_active %}Try adjusting your filters{% else %}Add your first log source to start ingesting logs{% endif %}</p>
+                {% if not search_query and not selected_project and not selected_type and not selected_active %}
+                <a href="{% url 'logsource_create' %}" class="btn btn-primary mt-2"><i class="bi bi-plus-circle me-1"></i> Add Log Source</a>
+                {% endif %}
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

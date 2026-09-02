@@ -1,0 +1,72 @@
+{% extends 'base.html' %}
+
+{% block title %}Create Postmortem - RAG Postmortem Intelligence{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="page-title">Create Postmortem</h1>
+        <p class="page-subtitle">Document an incident's postmortem</p>
+    </div>
+    <a href="{% url 'postmortem_list' %}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i> Back to List
+    </a>
+</div>
+
+<div class="row justify-content-center">
+    <div class="col-md-10 col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Postmortem Details</h5>
+            </div>
+            <div class="card-body">
+                <form method="post" novalidate>
+                    {% csrf_token %}
+                    
+                    <div class="mb-3">
+                        <label for="{{ form.incident.id_for_label }}" class="form-label">Incident <span class="text-danger">*</span></label>
+                        {{ form.incident }}
+                        {% if form.incident.errors %}
+                            <div class="invalid-feedback d-block">{{ form.incident.errors.0 }}</div>
+                        {% endif %}
+                        <div class="form-text">Select the incident this postmortem documents.</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="{{ form.title.id_for_label }}" class="form-label">Title <span class="text-danger">*</span></label>
+                        {{ form.title }}
+                        {% if form.title.errors %}
+                            <div class="invalid-feedback d-block">{{ form.title.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="{{ form.document_source.id_for_label }}" class="form-label">Document Source <span class="text-danger">*</span></label>
+                        {{ form.document_source }}
+                        {% if form.document_source.errors %}
+                            <div class="invalid-feedback d-block">{{ form.document_source.errors.0 }}</div>
+                        {% endif %}
+                        <div class="form-text">URL or path to the source document (Confluence, Google Docs, GitHub, file path, etc.)</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="{{ form.content_metadata.id_for_label }}" class="form-label">Content Metadata (JSON)</label>
+                        {{ form.content_metadata }}
+                        {% if form.content_metadata.errors %}
+                            <div class="invalid-feedback d-block">{{ form.content_metadata.errors.0 }}</div>
+                        {% endif %}
+                        <div class="form-text">Optional metadata about the document (author, tags, etc.)</div>
+                    </div>
+                    
+                    <div class="d-flex justify-content-end gap-2">
+                        <a href="{% url 'postmortem_list' %}" class="btn btn-outline-secondary">Cancel</a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-circle me-1"></i> Create Postmortem
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
