@@ -1,15 +1,16 @@
-# Samarth Joshi — Configuration / DevOps Support
+# Abdul Rehman — Testing / Validation Support
 
-**Folder for Samarth Joshi's individual contributions.**
+**Folder for Abdul Rehman's individual contributions.**
 
-GitHub: `samarthjoshi812`
-Email: `samarthjoshi812@gmail.com`
+GitHub: `abdulrehmansoudagar01-dev`
 
-Commit and push the contents of this folder from Samarth's GitHub account.
+Commit and push the contents of this folder from Abdul's GitHub account.
 
 ## Contents (contributed files)
 
-- `.env.example` — environment configuration template
-- `infrastructure/docker-compose.yml` — Docker networking/topology
-- `docs/architecture.md`, `docs/ingestion_guide.md` — documentation
-- `Makefile`, `pyproject.toml` — build/lint configuration
+- `tests/conftest.py`
+- `tests/__init__.py`
+- `tests/fastapi_backend/test_vector_service.py`
+- `tests/django_backend/test_security.py`
+- `tests/django_backend/test_config.py`
+- `tests/django_backend/test_clients.py`
