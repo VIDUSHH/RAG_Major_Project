@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Postmortem IQ · RAG Intelligence System</title>
+    <link rel="stylesheet" href="styles.css?v=__APP_VERSION__">
+</head>
+<body>
+<div class="app-shell">
+
+    <!-- ============ SIDEBAR ============ -->
+    <aside class="sidebar" id="sidebar">
+        <div class="brand">
+            <div class="brand-mark">
+                <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 12a9 9 0 1 1 18 0 9 9 0 0 1-18 0Z"/>
+                    <path d="M12 7v5l3 3"/>
+                </svg>
+            </div>
+            <div class="brand-text">
+                <div class="brand-name">Postmortem IQ</div>
+                <div class="brand-sub">RAG Intelligence System</div>
+            </div>
+        </div>
+
+        <nav class="nav">
+            <button class="nav-btn active" data-tab="dashboard">
+                <span class="nav-icon" data-icon="grid"></span>
+                <span>Dashboard</span>
+            </button>
+            <button class="nav-btn" data-tab="ingest">
+                <span class="nav-icon" data-icon="inbox"></span>
+                <span>Ingest</span>
+            </button>
+            <button class="nav-btn" data-tab="analyze">
+                <span class="nav-icon" data-icon="search"></span>
+                <span>Analyze</span>
+            </button>
+            <button class="nav-btn" data-tab="vector-db">
+                <span class="nav-icon" data-icon="chip"></span>
+                <span>Vector DB</span>
+            </button>
+            <button class="nav-btn" data-tab="graph-db">
+                <span class="nav-icon" data-icon="network"></span>
+                <span>Graph DB</span>
+            </button>
+            <button class="nav-btn" data-tab="system">
+                <span class="nav-icon" data-icon="monitor"></span>
+                <span>System</span>
+            </button>
+        </nav>
+
+        <div class="sidebar-foot">
+            <div class="health-pill" id="globalHealth" title="Overall system health">
+                <span class="status-dot disconnected"></span>
+                <span>Checking…</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ============ MAIN ============ -->
+    <main class="main">
+        <header class="topbar">
+            <div class="topbar-title">
+                <h1 id="pageTitle">Dashboard</h1>
+                <span class="topbar-sub" id="pageSubtitle">System overview</span>
+            </div>
+            <div class="topbar-meta">
+                <span class="pill" id="embedPill" title="Embedding provider"><span class="pill-dot"></span>–</span>
+                <span class="pill" id="llmPill" title="LLM provider"><span class="pill-dot"></span>–</span>
+            </div>
+        </header>
+
+        <!-- ============ DASHBOARD ============ -->
+        <section class="tab-panel active" id="dashboard">
+            <div class="stat-grid" id="statGrid">
+                <button class="stat-card" id="statDocumentsCard" onclick="app.showDocumentsModal()">
+                    <div class="stat-icon"><span class="icon" data-icon="doc"></span></div>
+                    <div class="stat-body">
+                        <div class="stat-label">Documents</div>
+                        <div class="stat-value" id="statDocuments">–</div>
+                        <div class="stat-hint">click for strategies</div>
+                    </div>
+                </button>
+                <button class="stat-card" id="statChunksCard" onclick="app.showDocumentsModal()">
+                    <div class="stat-icon"><span class="icon" data-icon="layers"></span></div>
+                    <div class="stat-body">
+                        <div class="stat-label">Chunks</div>
+                        <div class="stat-value" id="statChunks">–</div>
+                        <div class="stat-hint">vector store</div>
+                    </div>
+                </button>
+                <button class="stat-card" id="statVectorsCard" onclick="app.showVectorsModal()">
+                    <div class="stat-icon"><span class="icon" data-icon="chip"></span></div>
+                    <div class="stat-body">
+                        <div class="stat-label">Vector Store</div>
+                        <div class="stat-value" id="statVectors">–</div>
+                        <div class="stat-hint" id="statVectorsHint">dim · status</div>
+                    </div>
+                </button>
+                <button class="stat-card" id="statNodesCard" onclick="app.showNodesModal()">
+                    <div class="stat-icon"><span class="icon" data-icon="node"></span></div>
+                    <div class="stat-body">
+                        <div class="stat-label">Graph Nodes</div>
+                        <div class="stat-value" id="statNodes">–</div>
+                        <div class="stat-hint">Neo4j entities</div>
+                    </div>
+                </button>
+                <button class="stat-card" id="statRelationshipsCard" onclick="app.showRelationshipsModal()">
+                    <div class="stat-icon"><span class="icon" data-icon="link"></span></div>
+                    <div class="stat-body">
+                        <div class="stat-label">Relationships</div>
+                        <div class="stat-value" id="statRelationships">–</div>
+                        <div class="stat-hint">graph edges</div>
+                    </div>
+                </button>
+                <button class="stat-card" id="statIncidentsCard" onclick="app.showIncidentsModal()">
+                    <div class="stat-icon"><span class="icon" data-icon="alert"></span></div>
+                    <div class="stat-body">
+                        <div class="stat-label">Incidents</div>
+                        <div class="stat-value" id="statIncidents">–</div>
+                        <div class="stat-hint">in knowledge graph</div>
+                    </div>
+                </button>
+            </div>
+
+            <div class="dashboard-grid">
+                <div class="card" id="docsCard">
+                    <div class="card-header">
+                        <h2>Documents &amp; Chunking Strategies</h2>
+                        <span class="card-badge" id="docsCardBadge">0</span>
+                    </div>
+                    <div class="card-body" id="docsCardBody">
+                        <p class="muted-center">Loading…</p>
+                    </div>
+                </div>
+
+                <div class="card" id="activityCard">
+                    <div class="card-header">
+                        <h2>Recent Activity</h2>
+                        <span class="card-badge" id="activityBadge">0</span>
+                    </div>
+                    <div class="card-body" id="activityBody">
+                        <p class="muted-center">Loading…</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============ INGEST ============ -->
+        <section class="tab-panel" id="ingest">
+            <div class="two-col">
+                <div class="card">
+                    <div class="card-header">
+                        <h2>Choose a chunking strategy</h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="strategy-grid">
+                            <label class="strategy-card active">
+                                <input type="radio" name="strategy" value="hierarchical" checked>
+                                <div class="strategy-head">
+                                    <span class="strategy-title">Hierarchical</span>
+                                    <span class="strategy-badge">logs</span>
+                                </div>
+                                <p>Time-windowed parent chunks per service plus small child chunks of
+                                5–10 entries each — ideal for high-volume logs.</p>
+                                <div class="strategy-meta">1h windows · parent + child · keeps trace/request IDs</div>
+                            </label>
+                            <label class="strategy-card">
+                                <input type="radio" name="strategy" value="semantic">
+                                <div class="strategy-head">
+                                    <span class="strategy-title">Semantic</span>
+                                    <span class="strategy-badge">docs</span>
+                                </div>
+                                <p>Sentence-boundary chunking with overlap, embedding-aware grouping —
+                                best for postmortems and long documents.</p>
+                                <div class="strategy-meta">512 char max · 50 overlap · 100 min</div>
+                            </label>
+                            <label class="strategy-card">
+                                <input type="radio" name="strategy" value="fixed">
+                                <div class="strategy-head">
+                                    <span class="strategy-title">Fixed Size</span>
+                                    <span class="strategy-badge">generic</span>
+                                </div>
+                                <p>Simple fixed-size windows with overlap. Predictable and fast — use for
+                                mixed or unstructured text.</p>
+                                <div class="strategy-meta">512 chars · 64 overlap</div>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h2>Upload files</h2>
+                        <span class="card-badge">max 100 MB</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="dropzone" id="dropzone">
+                            <input type="file" id="fileInput" multiple hidden>
+                            <span class="icon dropzone-icon" data-icon="upload"></span>
+                            <p class="dropzone-title">Drag &amp; drop files here</p>
+                            <p class="dropzone-sub">or click to browse · log, txt, json, csv, md, yaml</p>
+                        </div>
+                        <div class="file-list" id="fileList"></div>
+                        <button class="btn btn-primary btn-block" id="ingestBtn" disabled>Ingest files</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card" id="resultsCard" hidden>
+                <div class="card-header">
+                    <h2>Ingestion Results</h2>
+                </div>
+                <div class="card-body">
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>File</th><th>Status</th><th>Entries</th><th>Chunks</th><th>Detail</th></tr>
+                        </thead>
+                        <tbody id="resultsBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============ ANALYZE ============ -->
+        <section class="tab-panel" id="analyze">
+            <div class="analyze-hero">
+                <div class="analyze-header">
+                    <h2>Incident Analysis</h2>
+                    <p>Ask a question about an incident — the system retrieves evidence from the
+                    vector store and knowledge graph, then generates a grounded analysis.</p>
+                </div>
+                <div class="analyze-input-row">
+                    <textarea id="queryInput" rows="2"
+                        placeholder="e.g. Why did the payment service fail last night?"></textarea>
+                    <div class="analyze-controls">
+                        <label class="inline-label">
+                            Top-K
+                            <input type="number" id="topK" value="10" min="1" max="50">
+                        </label>
+                        <button class="btn btn-primary" id="analyzeBtn" onclick="app.analyzeIncident()">
+                            <span class="icon" data-icon="spark"></span> Analyze
+                        </button>
+                    </div>
+                </div>
+                <div class="example-chips" id="exampleChips"></div>
+            </div>
+
+            <div id="responseSection" hidden>
+                <div class="response-meta">
+                    <span class="confidence-badge" id="confidenceBadge">Confidence: –</span>
+                    <span id="responseTime"></span>
+                </div>
+
+                <div class="response-grid">
+                    <div class="card">
+                        <div class="card-header"><h2>Incident</h2></div>
+                        <div class="card-body"><dl class="kv-grid" id="incidentDetails"></dl></div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><h2>Root Cause</h2></div>
+                        <div class="card-body">
+                            <div class="callout" id="rootCause">Not determined</div>
+                            <h3 class="subsection-title">Potential root cause</h3>
+                            <p id="potentialRootCause">Not determined</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header"><h2>Impact &amp; Resolution</h2></div>
+                    <div class="card-body"><dl class="kv-grid" id="impactResolution"></dl></div>
+                </div>
+
+                <div class="two-col">
+                    <div class="card">
+                        <div class="card-header"><h2>Timeline</h2></div>
+                        <div class="card-body"><div id="timeline" class="timeline"></div></div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><h2>Lessons Learned</h2></div>
+                        <div class="card-body"><ul id="lessonsLearned" class="lessons-list"></ul></div>
+                    </div>
+                </div>
+
+                <div class="two-col">
+                    <div class="card">
+                        <div class="card-header"><h2>Log Snippets</h2></div>
+                        <div class="card-body"><div id="logSnippets" class="snippet-stack"></div></div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><h2>Tags</h2></div>
+                        <div class="card-body"><div id="tags" class="tag-row"></div></div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header"><h2>Evidence</h2></div>
+                    <div class="card-body" id="evidenceList"></div>
+                </div>
+
+                <div class="two-col">
+                    <div class="card">
+                        <div class="card-header"><h2>Graph Relationships</h2></div>
+                        <div class="card-body" id="graphRelationships"></div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><h2>Recommended Investigation</h2></div>
+                        <div class="card-body" id="recommendationsList"></div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header"><h2>Dependency Visualization</h2></div>
+                    <div class="card-body"><div id="graphViz"></div></div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header"><h2>Raw JSON</h2><button class="btn btn-sm" onclick="app.toggleJson()">Toggle</button></div>
+                    <div class="card-body"><pre class="json-viewer" id="jsonViewer" hidden></pre></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============ VECTOR DB ============ -->
+        <section class="tab-panel" id="vector-db">
+            <div class="chat-panel">
+                <div class="chat-header">
+                    <div class="chat-title">
+                        <span class="chat-orb"><span class="icon" data-icon="chip"></span></span>
+                        <div>
+                            <h2>Vector Search</h2>
+                            <span>Semantic search over your indexed chunks</span>
+                        </div>
+                    </div>
+                    <div class="chat-filters">
+                        <select id="vectorFilterService"><option value="">All Services</option></select>
+                        <select id="vectorFilterLevel">
+                            <option value="">All Levels</option>
+                            <option value="ERROR">ERROR</option>
+                            <option value="WARN">WARN</option>
+                            <option value="INFO">INFO</option>
+                            <option value="DEBUG">DEBUG</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="chat-messages" id="chatMessages"></div>
+                <div class="chat-input">
+                    <input type="text" id="vectorSearchQuery" placeholder="Search the vector store…"
+                        autocomplete="off">
+                    <button class="btn btn-primary" id="vectorSearchBtn" onclick="app.searchVectors()">
+                        <span class="icon" data-icon="send"></span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============ GRAPH DB ============ -->
+        <section class="tab-panel" id="graph-db">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Service Dependency Graph</h2>
+                    <span class="card-badge">Neo4j</span>
+                </div>
+                <div class="card-body">
+                    <div class="graph-search-row">
+                        <input type="text" id="serviceGraphInput" placeholder="Enter a service name…"
+                            autocomplete="off" list="serviceList">
+                        <datalist id="serviceList"></datalist>
+                        <button class="btn btn-primary" onclick="app.loadServiceGraph()"><span class="icon" data-icon="network"></span> Explore</button>
+                    </div>
+                    <div class="graph-viz" id="serviceGraphViz">
+                        <p class="muted-center">Enter a service to visualize its dependencies and dependents.</p>
+                    </div>
+                    <div class="graph-legend">
+                        <span><span class="legend-node legend-node-service"></span> Service</span>
+                        <span><span class="legend-node legend-node-log"></span> Log Entry</span>
+                        <span><span class="legend-node legend-node-other"></span> Other</span>
+                        <span><span class="legend-edge"></span> DEPENDS_ON / PRODUCED_LOG</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="two-col">
+                <div class="card">
+                    <div class="card-header">
+                        <h2>Graph Nodes</h2>
+                        <select id="graphNodeType">
+                            <option value="">All Types</option>
+                            <option>Service</option>
+                            <option>LogEntry</option>
+                            <option>Incident</option>
+                            <option>Error</option>
+                            <option>Fix</option>
+                            <option>Lesson</option>
+                            <option>Project</option>
+                            <option>Organization</option>
+                        </select>
+                    </div>
+                    <div class="card-body table-scroll">
+                        <table class="data-table">
+                            <thead><tr><th>ID</th><th>Type</th><th>Properties</th></tr></thead>
+                            <tbody id="graphNodesBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h2>Graph Relationships</h2>
+                        <select id="graphRelType">
+                            <option value="">All Types</option>
+                            <option>DEPENDS_ON</option>
+                            <option>PRODUCED_LOG</option>
+                            <option>RELATED_ERROR</option>
+                            <option>CALLS</option>
+                            <option>USES</option>
+                        </select>
+                    </div>
+                    <div class="card-body table-scroll">
+                        <table class="data-table">
+                            <thead><tr><th>Source</th><th>Type</th><th>Target</th></tr></thead>
+                            <tbody id="graphRelationshipsBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============ SYSTEM ============ -->
+        <section class="tab-panel" id="system">
+            <div class="system-grid">
+                <div class="status-card" id="qdrantCard">
+                    <div class="status-card-head">
+                        <div class="status-card-icon"><span class="icon" data-icon="chip"></span></div>
+                        <div>
+                            <h3>Qdrant Vector DB</h3>
+                            <div class="status-line" id="qdrantStatus"><span class="status-dot disconnected"></span> Checking…</div>
+                        </div>
+                    </div>
+                    <div class="status-details" id="qdrantDetails">–</div>
+                </div>
+                <div class="status-card" id="neo4jCard">
+                    <div class="status-card-head">
+                        <div class="status-card-icon"><span class="icon" data-icon="network"></span></div>
+                        <div>
+                            <h3>Neo4j Graph DB</h3>
+                            <div class="status-line" id="neo4jStatus"><span class="status-dot disconnected"></span> Checking…</div>
+                        </div>
+                    </div>
+                    <div class="status-details" id="neo4jDetails">–</div>
+                </div>
+                <div class="status-card" id="embedCard">
+                    <div class="status-card-head">
+                        <div class="status-card-icon"><span class="icon" data-icon="spark"></span></div>
+                        <div>
+                            <h3>Embeddings</h3>
+                            <div class="status-line" id="embedStatus"><span class="status-dot disconnected"></span> –</div>
+                        </div>
+                    </div>
+                    <div class="status-details" id="embedDetails">–</div>
+                </div>
+                <div class="status-card" id="llmCard">
+                    <div class="status-card-head">
+                        <div class="status-card-icon"><span class="icon" data-icon="brain"></span></div>
+                        <div>
+                            <h3>LLM</h3>
+                            <div class="status-line" id="llmStatus"><span class="status-dot disconnected"></span> –</div>
+                        </div>
+                    </div>
+                    <div class="status-details" id="llmDetails">–</div>
+                </div>
+            </div>
+        </section>
+    </main>
+</div>
+
+<!-- ============ INGEST OVERLAY ============ -->
+<div class="ingest-overlay" id="ingestOverlay" hidden>
+    <div class="ingest-stage">
+        <div class="ingest-rings">
+            <div class="ring ring-1"></div>
+            <div class="ring ring-2"></div>
+            <div class="ring ring-3"></div>
+            <div class="ingest-core"><span class="icon" data-icon="doc"></span></div>
+        </div>
+        <h2 id="ingestOverlayTitle">Ingesting files…</h2>
+        <p class="ingest-file" id="ingestOverlayFile">Preparing…</p>
+        <div class="ingest-progress-track"><div class="ingest-progress-bar" id="ingestProgressBar"></div></div>
+        <div class="ingest-steps" id="ingestSteps"></div>
+        <div class="ingest-status" id="ingestStatus">Starting…</div>
+    </div>
+</div>
+
+<!-- ============ ANALYZE LOADING OVERLAY ============ -->
+<div class="loading-overlay" id="loadingOverlay" hidden>
+    <div class="loading-card">
+        <h2>Analyzing incident…</h2>
+        <div class="loading-steps" id="loadingSteps"></div>
+        <div class="loading-hint" id="loadingHint">Working…</div>
+    </div>
+</div>
+
+<!-- ============ MODAL ============ -->
+<div class="modal-backdrop" id="modalBackdrop" hidden>
+    <div class="modal" id="modalBox" role="dialog" aria-modal="true"></div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+    const INTERNAL_API_KEY = __INTERNAL_API_KEY__;
+</script>
+<script src="app.js?v=__APP_VERSION__"></script>
+</body>
+</html>
