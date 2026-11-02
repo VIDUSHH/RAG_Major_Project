@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Postmortem IQ · RAG Intelligence System</title>
+    <title>GraphRCA: Graph-Based Root Cause Analysis</title>
     <link rel="stylesheet" href="styles.css?v=__APP_VERSION__">
 </head>
 <body>
@@ -19,8 +19,8 @@
                 </svg>
             </div>
             <div class="brand-text">
-                <div class="brand-name">Postmortem IQ</div>
-                <div class="brand-sub">RAG Intelligence System</div>
+                <div class="brand-name">GraphRCA</div>
+                <div class="brand-sub">Graph-Based Root Cause Analysis</div>
             </div>
         </div>
 
@@ -249,23 +249,40 @@
             </div>
 
             <div id="responseSection" hidden>
-                <div class="response-meta">
-                    <span class="confidence-badge" id="confidenceBadge">Confidence: –</span>
-                    <span id="responseTime"></span>
+                <div class="report-head">
+                    <div class="report-head-main">
+                        <div class="report-eyebrow">Incident Analysis Report</div>
+                        <div class="report-title" id="reportTitle">–</div>
+                        <div class="report-subline" id="reportSubline"></div>
+                    </div>
+                    <div class="report-badges">
+                        <span class="confidence-badge" id="confidenceBadge">Confidence: -</span>
+                        <span id="responseTime" class="report-subline"></span>
+                        <button id="downloadPdfBtn" class="report-download" type="button" title="Download a complete PDF report of this analysis">Download PDF</button>
+                    </div>
+                </div>
+
+                <div class="report-verdict" id="reportVerdict"></div>
+
+                <div class="card root-cause-card">
+                    <div class="card-header"><h2>Root Cause Analysis</h2></div>
+                    <div class="card-body">
+                        <div class="root-cause-summary" id="rootCause">Not determined</div>
+                        <div class="root-cause-sub">
+                            <h3 class="subsection-title">Probable root cause (model inference)</h3>
+                            <p id="potentialRootCause">Not determined</p>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="response-grid">
                     <div class="card">
-                        <div class="card-header"><h2>Incident</h2></div>
+                        <div class="card-header"><h2>Incident Details</h2></div>
                         <div class="card-body"><dl class="kv-grid" id="incidentDetails"></dl></div>
                     </div>
                     <div class="card">
-                        <div class="card-header"><h2>Root Cause</h2></div>
-                        <div class="card-body">
-                            <div class="callout" id="rootCause">Not determined</div>
-                            <h3 class="subsection-title">Potential root cause</h3>
-                            <p id="potentialRootCause">Not determined</p>
-                        </div>
+                        <div class="card-header"><h2>Evidence Summary</h2></div>
+                        <div class="card-body" id="evidenceSummary"></div>
                     </div>
                 </div>
 
@@ -280,14 +297,14 @@
                         <div class="card-body"><div id="timeline" class="timeline"></div></div>
                     </div>
                     <div class="card">
-                        <div class="card-header"><h2>Lessons Learned</h2></div>
+                        <div class="card-header"><h2>Lessons &amp; Mistakes to Avoid</h2></div>
                         <div class="card-body"><ul id="lessonsLearned" class="lessons-list"></ul></div>
                     </div>
                 </div>
 
                 <div class="two-col">
                     <div class="card">
-                        <div class="card-header"><h2>Log Snippets</h2></div>
+                        <div class="card-header"><h2>Relevant Logs</h2></div>
                         <div class="card-body"><div id="logSnippets" class="snippet-stack"></div></div>
                     </div>
                     <div class="card">
@@ -297,8 +314,16 @@
                 </div>
 
                 <div class="card">
-                    <div class="card-header"><h2>Evidence</h2></div>
-                    <div class="card-body" id="evidenceList"></div>
+                    <div class="card-header"><h2>Evidence — Retrieved Logs &amp; Graph Nodes</h2></div>
+                    <div class="card-body">
+                        <div class="evidence-toolbar" id="evidenceToolbar"></div>
+                        <div id="evidenceList"></div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header"><h2>Verified Sources</h2></div>
+                    <div class="card-body"><div id="sourcesList" class="sources-grid"></div></div>
                 </div>
 
                 <div class="two-col">
@@ -370,6 +395,8 @@
                             autocomplete="off" list="serviceList">
                         <datalist id="serviceList"></datalist>
                         <button class="btn btn-primary" onclick="app.loadServiceGraph()"><span class="icon" data-icon="network"></span> Explore</button>
+                        <button class="btn" id="serviceGraphReset" type="button" title="Re-run layout and fit all nodes">Re-layout</button>
+                        <button class="btn" id="serviceGraphFullscreen" type="button" title="View graph full screen">Fullscreen</button>
                     </div>
                     <div class="graph-viz" id="serviceGraphViz">
                         <p class="muted-center">Enter a service to visualize its dependencies and dependents.</p>
@@ -377,8 +404,11 @@
                     <div class="graph-legend">
                         <span><span class="legend-node legend-node-service"></span> Service</span>
                         <span><span class="legend-node legend-node-log"></span> Log Entry</span>
+                        <span><span class="legend-node legend-node-error"></span> Error</span>
                         <span><span class="legend-node legend-node-other"></span> Other</span>
-                        <span><span class="legend-edge"></span> DEPENDS_ON / PRODUCED_LOG</span>
+                        <span><span class="legend-edge legend-edge-depend"></span> DEPENDS_ON</span>
+                        <span><span class="legend-edge legend-edge-log"></span> PRODUCED_LOG</span>
+                        <span class="graph-hint">Drag bubbles · scroll to zoom · drag background to pan · double-click to reset</span>
                     </div>
                 </div>
             </div>

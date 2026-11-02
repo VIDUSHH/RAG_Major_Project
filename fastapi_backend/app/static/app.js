@@ -54,15 +54,18 @@ const FILE_EXT_COLORS = {
 // ============================================================
 // App
 // ============================================================
-class RAGApp {
+class GraphRCAApp {
     constructor() {
         this.apiBase = '/api/v1';
         this.uploadedFiles = new Map();
         this.lastServiceGraph = null;
+        this._serviceGraphSim = null;
+        this._serviceGraphReset = null;
         this._activityTimer = null;
         this._loadingTimer = null;
         this._ingestTimer = null;
         this._ingestCompleted = false;
+        this._lastAnalysis = null;
 
         this.bindEvents();
         hydrateIcons();
@@ -162,6 +165,7 @@ class RAGApp {
         document.getElementById('queryInput').addEventListener('keydown', (e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') this.analyzeIncident();
         });
+        document.getElementById('downloadPdfBtn').addEventListener('click', () => this.downloadPdf());
 
         // Vector chat
         document.getElementById('vectorSearchQuery').addEventListener('keydown', (e) => {
@@ -174,6 +178,10 @@ class RAGApp {
         document.getElementById('serviceGraphInput').addEventListener('keydown', (e) => {
             if (e.key === 'Enter') this.loadServiceGraph();
         });
+        const graphReset = document.getElementById('serviceGraphReset');
+        if (graphReset) graphReset.addEventListener('click', () => { if (this._serviceGraphReset) this._serviceGraphReset(); });
+        const graphFs = document.getElementById('serviceGraphFullscreen');
+        if (graphFs) graphFs.addEventListener('click', () => { if (this._serviceGraphFullscreenToggle) this._serviceGraphFullscreenToggle(); });
         document.getElementById('graphNodeType').addEventListener('change', () => this.loadGraphNodes());
         document.getElementById('graphRelType').addEventListener('change', () => this.loadGraphRelationships());
 
@@ -833,23 +841,113 @@ class RAGApp {
             </div>`).join('');
     }
 
+    async downloadPdf() {
+        if (!this._lastAnalysis) {
+            this.showToast('Run an analysis first, then download the PDF.', 'error');
+            return;
+        }
+        const btn = document.getElementById('downloadPdfBtn');
+        const originalLabel = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Generating PDF…';
+        try {
+            const headers = {
+                'Content-Type': 'application/json',
+                'X-Internal-API-Key': this.getApiKey(),
+                'X-Organization-ID': ORG_ID,
+                'X-User-ID': USER_ID,
+                'X-User-Email': USER_EMAIL,
+                'X-User-Roles': USER_ROLES,
+            };
+            const response = await fetch(`${this.apiBase}/query/report/pdf`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ analysis: this._lastAnalysis }),
+            });
+            if (!response.ok) {
+                let detail = `PDF request failed (${response.status})`;
+                try {
+                    const data = await response.json();
+                    if (data && data.detail) detail = data.detail;
+                } catch (_) { /* ignore */ }
+                throw new Error(detail);
+            }
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `incident-analysis-${stamp}.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 3000);
+            this.showToast('PDF report downloaded', 'success');
+        } catch (e) {
+            this.showToast('PDF export failed: ' + e.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = originalLabel;
+        }
+    }
+
     displayResponse(response) {
+        this._lastAnalysis = response;
+        const confidenceClass = (response.confidence || '').toLowerCase().replace(/ /g, '-');
         document.getElementById('confidenceBadge').textContent = `Confidence: ${response.confidence}`;
-        document.getElementById('confidenceBadge').className =
-            `confidence-badge ${(response.confidence || '').toLowerCase().replace(/ /g, '-')}`;
+        document.getElementById('confidenceBadge').className = `confidence-badge ${confidenceClass}`;
         document.getElementById('responseTime').textContent =
-            `Generated: ${new Date().toLocaleTimeString()} · took ${((Date.now() - this._analyzeStart) / 1000).toFixed(1)}s`;
+            `${((Date.now() - this._analyzeStart) / 1000).toFixed(1)}s · ${new Date().toLocaleTimeString()}`;
+
+        const evidenceList = response.evidence || [];
+        const sources = response.sources || [];
+        const graphRels = response.graph_relationships || [];
+        const logEvidence = evidenceList.filter((e) => e.type !== 'graph');
+        const graphEvidence = evidenceList.filter((e) => e.type === 'graph');
+
+        // Report header
+        document.getElementById('reportTitle').textContent = response.title || 'Incident Analysis';
+        document.getElementById('reportSubline').textContent =
+            `${response.service || 'unknown service'} · ${response.team || 'unassigned'} · severity ${response.severity || '—'} · status ${response.status || '—'}`;
+
+        // Verdict tiles
+        document.getElementById('reportVerdict').innerHTML = [
+            ['Risk Severity', response.risk_severity || '—'],
+            ['Evidence Items', String(evidenceList.length)],
+            ['Verified Sources', String(sources.length)],
+            ['Graph Links', String(graphRels.length)],
+        ].map(([label, value]) => `
+            <div class="verdict-tile">
+                <div class="verdict-label">${this.escapeHtml(label)}</div>
+                <div class="verdict-value">${this.escapeHtml(value)}</div>
+            </div>`).join('');
 
         document.getElementById('incidentDetails').innerHTML = `
             <dt>Incident ID</dt><dd>${this.escapeHtml(response.incident_id)}</dd>
-            <dt>Title</dt><dd>${this.escapeHtml(response.title)}</dd>
             <dt>Source</dt><dd>${this.escapeHtml(response.source)}${response.source_url ? ` (<a href="${this.escapeHtml(response.source_url)}" target="_blank" rel="noopener">link</a>)` : ''}</dd>
             <dt>Severity</dt><dd><span class="status-pill ${this.escapeHtml((response.severity || '').toLowerCase())}">${this.escapeHtml(response.severity)}</span></dd>
             <dt>Status</dt><dd>${this.escapeHtml(response.status)}</dd>
             <dt>Service</dt><dd>${this.escapeHtml(response.service)}</dd>
             <dt>Team</dt><dd>${this.escapeHtml(response.team)}</dd>
-            <dt>Created</dt><dd>${this.escapeHtml(response.created_at)}</dd>
-            <dt>Resolved</dt><dd>${this.escapeHtml(response.resolved_at || 'Not resolved')}</dd>`;
+            <dt>Created</dt><dd>${this.escapeHtml(this.formatDateTime(response.created_at))}</dd>
+            <dt>Resolved</dt><dd>${this.escapeHtml(response.resolved_at ? this.formatDateTime(response.resolved_at) : 'Not resolved')}</dd>`;
+
+        // Evidence summary
+        const services = [...new Set(evidenceList.map((e) => e.metadata && e.metadata.service).filter(Boolean))];
+        const levels = {};
+        evidenceList.forEach((e) => {
+            const lvl = (e.metadata && (e.metadata.level || e.metadata.severity)) || null;
+            if (lvl) levels[lvl] = (levels[lvl] || 0) + 1;
+        });
+        const levelText = Object.entries(levels).map(([k, v]) => `${k} ${v}`).join(' · ') || '—';
+        document.getElementById('evidenceSummary').innerHTML = `
+            <div class="status-details">
+                <div class="detail-line"><span>Total evidence</span><span>${evidenceList.length}</span></div>
+                <div class="detail-line"><span>Log chunks</span><span>${logEvidence.length}</span></div>
+                <div class="detail-line"><span>Graph nodes</span><span>${graphEvidence.length}</span></div>
+                <div class="detail-line"><span>Services seen</span><span>${this.escapeHtml(services.join(', ') || '—')}</span></div>
+                <div class="detail-line"><span>Levels</span><span>${this.escapeHtml(levelText)}</span></div>
+            </div>`;
 
         document.getElementById('potentialRootCause').textContent = response.potential_root_cause || 'Not determined';
         document.getElementById('rootCause').textContent = response.root_cause || 'Not determined';
@@ -875,34 +973,62 @@ class RAGApp {
 
         document.getElementById('logSnippets').innerHTML =
             (response.log_snippets || []).map((s) => `<div class="log-snippet">${this.escapeHtml(s)}</div>`).join('') ||
-            '<p class="muted-center">No log snippets available</p>';
+            '<div class="empty-note">No log snippets available</div>';
 
         document.getElementById('tags').innerHTML =
             (response.tags || []).map((t) => `<span class="tag">${this.escapeHtml(t)}</span>`).join('') ||
             '<span class="tag muted">No tags</span>';
 
-        document.getElementById('evidenceList').innerHTML =
-            (response.evidence || []).map((ev, i) => `
-            <div class="evidence-item">
-                <div class="evidence-header">
-                    <span class="evidence-source">[Source ${i + 1}] ${this.escapeHtml((ev.type || '').toUpperCase())}: ${this.escapeHtml(ev.source)}</span>
-                    <div class="evidence-meta">
-                        <span>Score: ${ev.score != null ? Number(ev.score).toFixed(3) : 'N/A'}</span>
-                        <span>Service: ${this.escapeHtml(ev.metadata?.service || 'unknown')}</span>
-                        <span>Time: ${this.escapeHtml(ev.metadata?.timestamp || 'unknown')}</span>
+        // Evidence toolbar + list
+        document.getElementById('evidenceToolbar').innerHTML = `
+            <span class="evidence-count-badge">${evidenceList.length} evidence items</span>
+            <span class="evidence-count-badge">${logEvidence.length} log chunks</span>
+            <span class="evidence-count-badge">${graphEvidence.length} graph nodes</span>
+            <span class="evidence-cite">Each item below was retrieved from the vector store or knowledge graph — this is the proof behind the analysis.</span>`;
+
+        document.getElementById('evidenceList').innerHTML = evidenceList.length ? `
+            <div class="evidence-list">
+            ${evidenceList.map((ev, i) => {
+                const isGraph = ev.type === 'graph';
+                const meta = ev.metadata || {};
+                return `
+                <div class="evidence-item ${isGraph ? 'evidence-graph' : ''}">
+                    <div class="evidence-header">
+                        <span class="evidence-source">
+                            <span class="evidence-type-tag ${isGraph ? 'graph' : ''}">${this.escapeHtml((ev.type || 'evidence').toUpperCase())}</span>
+                            [Source ${i + 1}] ${this.escapeHtml(ev.source || ev.node_type || 'unknown')}
+                        </span>
+                        <div class="evidence-meta">
+                            ${ev.score != null ? `<span class="evidence-score-tag">score ${Number(ev.score).toFixed(3)}</span>` : ''}
+                            ${meta.service ? `<span>Service: ${this.escapeHtml(meta.service)}</span>` : ''}
+                            ${meta.level ? `<span>Level: ${this.escapeHtml(meta.level)}</span>` : ''}
+                            ${meta.timestamp ? `<span>${this.escapeHtml(this.formatDateTime(meta.timestamp))}</span>` : ''}
+                        </div>
                     </div>
-                </div>
-                <div class="evidence-content">${this.escapeHtml(ev.content || '')}</div>
-            </div>`).join('') || '<p class="muted-center">No evidence retrieved</p>';
+                    <div class="evidence-content">${this.escapeHtml(ev.content || '')}</div>
+                    ${(ev.chunk_id || meta.source_file) ? `<div class="evidence-cite">${meta.source_file ? `file: ${this.escapeHtml(meta.source_file)}` : ''}${ev.chunk_id ? ` · chunk ${this.escapeHtml(ev.chunk_id)}` : ''}${ev.retrieval_method ? ` · via ${this.escapeHtml(ev.retrieval_method)}` : ''}</div>` : ''}
+                </div>`;
+            }).join('')}
+            </div>` : '<div class="empty-note">No evidence retrieved for this query. Try rephrasing or ingesting more data.</div>';
+
+        // Verified sources
+        document.getElementById('sourcesList').innerHTML = sources.length ? sources.map((s, i) => `
+            <div class="source-row">
+                <span class="cell-source">[Source ${i + 1}] ${this.escapeHtml(s.source_file || 'unknown')}</span>
+                <span>service: ${this.escapeHtml(s.service || '—')}</span>
+                <span>type: ${this.escapeHtml(s.source_type || '—')}</span>
+                <span>score: ${s.retrieval_score != null ? Number(s.retrieval_score).toFixed(3) : '—'}</span>
+                <span>${this.escapeHtml(s.timestamp && s.timestamp !== 'unknown' ? this.formatDateTime(s.timestamp) : '—')}</span>
+            </div>`).join('') : '<div class="empty-note">No verified sources available.</div>';
 
         const graphRel = document.getElementById('graphRelationships');
-        if (response.graph_relationships && response.graph_relationships.length > 0) {
+        if (graphRels.length > 0) {
             graphRel.innerHTML = `
                 <div class="table-scroll">
                     <table class="data-table">
                         <thead><tr><th>Source</th><th>Relationship</th><th>Target</th></tr></thead>
                         <tbody>
-                            ${response.graph_relationships.map((r) => `
+                            ${graphRels.map((r) => `
                                 <tr><td>${this.escapeHtml(r.source)}</td>
                                 <td><span class="rel-type-badge">${this.escapeHtml(r.type)}</span></td>
                                 <td>${this.escapeHtml(r.target)}</td></tr>`).join('')}
@@ -910,7 +1036,7 @@ class RAGApp {
                     </table>
                 </div>`;
         } else {
-            graphRel.innerHTML = '<p class="muted-center">No graph relationships found</p>';
+            graphRel.innerHTML = '<div class="empty-note">No graph relationships found</div>';
         }
 
         document.getElementById('recommendationsList').innerHTML =
@@ -921,12 +1047,12 @@ class RAGApp {
                     <div class="recommendation-title">Investigation Step ${i + 1}</div>
                     <div class="recommendation-description">${this.escapeHtml(r)}</div>
                 </div>
-            </div>`).join('') || '<p class="muted-center">No recommendations available</p>';
+            </div>`).join('') || '<div class="empty-note">No recommendations available</div>';
 
         document.getElementById('jsonViewer').textContent = JSON.stringify(response, null, 2);
         document.getElementById('jsonViewer').hidden = false;
 
-        this.renderGraphViz(response.graph_relationships || [], 'graphViz', { interactive: false });
+        this.renderGraphViz(graphRels, 'graphViz', { interactive: false });
     }
 
     toggleJson() {
@@ -945,8 +1071,18 @@ class RAGApp {
             return;
         }
 
-        const nodes = new Map();
+        const rels = [];
+        const seenRels = new Set();
         relationships.forEach((r) => {
+            if (!r || r.source === r.target) return;
+            const key = `${r.source}|${r.target}|${r.type}`;
+            if (seenRels.has(key)) return;
+            seenRels.add(key);
+            rels.push(r);
+        });
+
+        const nodes = new Map();
+        rels.forEach((r) => {
             if (!nodes.has(r.source)) nodes.set(r.source, { id: r.source, type: opts.nodeTypeOf ? opts.nodeTypeOf(r.source) : 'Service' });
             if (!nodes.has(r.target)) nodes.set(r.target, { id: r.target, type: opts.nodeTypeOf ? opts.nodeTypeOf(r.target) : 'Service' });
         });
@@ -967,11 +1103,11 @@ class RAGApp {
         let svg = `<svg class="graph-svg" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
             <defs>
                 <marker id="arrowhead-${containerId}" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                    <polygon points="0 0, 10 3.5, 0 7" fill="var(--muted)" />
+                    <polygon points="0 0, 10 3.5, 0 7" fill="var(--text-muted)" />
                 </marker>
             </defs>`;
 
-        relationships.forEach((r) => {
+        rels.forEach((r) => {
             const s = positions.get(r.source);
             const t = positions.get(r.target);
             if (!s || !t) return;
@@ -983,13 +1119,16 @@ class RAGApp {
             const pos = positions.get(node.id);
             if (!pos) return;
             const isLog = node.type === 'LogEntry';
-            const r = isLog ? 7 : 15;
+            const r = isLog ? 6 : 15;
             const fill = isLog ? 'var(--accent-green)' : node.type === 'Service' ? 'var(--accent-blue)' : 'var(--accent-purple)';
+            const label = node.type === 'Service'
+                ? String(node.id).replace(/^service-/, '')
+                : isLog ? '' : String(node.id).substring(0, 22);
             const clickAttr = opts.interactive === false ? '' : ` onclick="app.showServiceNode('${node.id.replace(/'/g, '')}')" style="cursor:pointer"`;
             svg += `
                 <g class="graph-node" data-id="${node.id}"${clickAttr}>
                     <circle cx="${pos.x}" cy="${pos.y}" r="${r}" fill="${fill}" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" />
-                    <text class="graph-label" x="${pos.x}" y="${pos.y + (isLog ? 18 : 30)}" text-anchor="middle">${this.escapeHtml(String(node.id).substring(0, isLog ? 10 : 22))}</text>
+                    ${label ? `<text class="graph-label" x="${pos.x}" y="${pos.y + (isLog ? 16 : 30)}" text-anchor="middle">${this.escapeHtml(label)}</text>` : ''}
                 </g>`;
         });
 
@@ -1058,7 +1197,18 @@ class RAGApp {
         if (!results.length) {
             return `<div class="chat-empty">No matches found. Try different wording or relax filters.</div>`;
         }
+        const levelCounts = {};
+        results.forEach((r) => {
+            const lvl = r.metadata && (r.metadata.level || r.metadata.severity);
+            if (lvl) levelCounts[lvl] = (levelCounts[lvl] || 0) + 1;
+        });
+        const levelText = Object.entries(levelCounts).map(([k, v]) => `${k} ${v}`).join(' · ');
         return `<div class="chat-results">
+            <div class="evidence-toolbar">
+                <span class="evidence-count-badge">${results.length} matching chunks</span>
+                ${levelText ? `<span class="evidence-cite">${this.escapeHtml(levelText)}</span>` : ''}
+                <span class="evidence-cite">Retrieved log chunks ranked by semantic relevance — click any result to inspect the full evidence.</span>
+            </div>
             ${results.map((r) => `
                 <button class="chat-result" onclick="app.openChunkModal('${r.id}')">
                     <div class="chat-result-head">
@@ -1191,23 +1341,16 @@ class RAGApp {
         try {
             const result = await this.api(`/database/graph/service/${encodeURIComponent(serviceName)}?depth=2`);
             const nodes = result.nodes || [];
-            const nodeById = {};
-            nodes.forEach((n) => { nodeById[n.id] = n; });
+            const relationships = result.relationships || [];
+            const byId = new Map(nodes.map((n) => [n.id, n]));
+            const rootName = result.service || serviceName;
+            const rootNode = nodes.find((n) => n.type === 'Service' && n.properties && n.properties.name === rootName)
+                || nodes.find((n) => n.id === rootName || n.id === `service-${rootName}`)
+                || nodes.find((n) => n.type === 'Service');
+            const rootId = rootNode ? rootNode.id : rootName;
 
-            const edges = (result.relationships || []).map((r) => ({
-                source: r.source,
-                target: r.target,
-                type: r.type,
-            }));
-            if (edges.length === 0) {
-                nodes.forEach((n) => {
-                    (n.properties?.dependencies || []).forEach((d) =>
-                        edges.push({ source: result.service, target: d, type: 'DEPENDS_ON' }));
-                });
-            }
-
-            this.lastServiceGraph = { nodes, edges, service: result.service || serviceName };
-            this.renderServiceGraph(nodes, edges);
+            this.lastServiceGraph = { nodes, edges: relationships, service: rootName };
+            this.renderServiceGraph({ rootId, nodes, relationships, byId });
         } catch (e) {
             console.error('Failed to load service graph:', e);
             container.innerHTML = `<p class="muted-center text-error">Failed to load service graph: ${this.escapeHtml(e.message)}</p>`;
@@ -1215,20 +1358,566 @@ class RAGApp {
         }
     }
 
-    renderServiceGraph(nodes, edges) {
-        if (!edges.length) {
-            document.getElementById('serviceGraphViz').innerHTML =
-                `<p class="muted-center">No relationships found for this service.</p>`;
-            return;
+    destroyServiceGraph() {
+        const sim = this._serviceGraphSim;
+        if (sim) {
+            if (sim.raf) cancelAnimationFrame(sim.raf);
+            if (sim.wrap && document.fullscreenElement === sim.wrap && document.exitFullscreen) {
+                const p = document.exitFullscreen();
+                if (p && p.catch) p.catch(() => {});
+            }
+            if (sim.ac) sim.ac.abort();
+            if (sim.tooltip && sim.tooltip.parentNode) sim.tooltip.parentNode.removeChild(sim.tooltip);
         }
-        this.renderGraphViz(edges, 'serviceGraphViz', {
-            interactive: true,
-            nodeTypeOf: (id) => {
-                const n = (this.lastServiceGraph?.nodes || []).find((x) => x.id === id);
-                return n ? n.type : 'Service';
-            },
+        const fsBtn = document.getElementById('serviceGraphFullscreen');
+        if (fsBtn) fsBtn.textContent = 'Fullscreen';
+        this._serviceGraphSim = null;
+        this._serviceGraphReset = null;
+        this._serviceGraphFullscreenToggle = null;
+    }
+
+    renderServiceGraph({ rootId, nodes, relationships, byId }) {
+        const container = document.getElementById('serviceGraphViz');
+        if (!container) return;
+        this.destroyServiceGraph();
+
+        const cssVar = (name, fallback) => {
+            const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+            return v || fallback;
+        };
+        const colors = {
+            Service: cssVar('--accent-blue', '#4f8cff'),
+            LogEntry: cssVar('--accent-green', '#3ddc97'),
+            Error: '#ff5c7a',
+        };
+        const otherColor = cssVar('--accent-purple', '#9d7bff');
+        const edgeColors = {
+            DEPENDS_ON: cssVar('--accent-blue', '#4f8cff'),
+            PRODUCED_LOG: cssVar('--accent-green', '#3ddc97'),
+            RELATED_ERROR: '#ff5c7a',
+        };
+        const fontFamily = getComputedStyle(document.body).fontFamily || 'sans-serif';
+
+        const index = new Map(nodes.map((n, i) => [n.id, i]));
+        const gNodes = nodes.map((n) => {
+            const type = n.type || 'Other';
+            const rawName = (n.properties && (n.properties.name || n.properties.source)) || String(n.id);
+            return {
+                id: n.id,
+                type,
+                orig: n,
+                label: String(rawName).replace(/^service-/, '').slice(0, 30),
+                x: 0, y: 0, vx: 0, vy: 0, deg: 0,
+                r: type === 'Service' ? 26 : type === 'LogEntry' ? 4.2 : 8,
+                color: colors[type] || otherColor,
+            };
         });
-        document.getElementById('serviceGraphViz').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+        // Neo4j's undirected MATCH returns each edge twice (both orientations).
+        const seen = new Set();
+        const gLinks = [];
+        for (const rel of relationships || []) {
+            if (!rel || rel.source === rel.target) continue;
+            const s = index.get(rel.source);
+            const t = index.get(rel.target);
+            if (s == null || t == null) continue;
+            const key = (s < t ? `${s}|${t}` : `${t}|${s}`) + '|' + rel.type;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            gLinks.push({ s, t, type: rel.type });
+            gNodes[s].deg += 1;
+            gNodes[t].deg += 1;
+        }
+        gNodes.forEach((n) => {
+            n.rel = {};
+            if (n.type === 'Service') n.r = 22 + Math.min(16, n.deg * 0.7);
+            else if (n.type === 'LogEntry') n.r = 3.4 + Math.min(2.6, n.deg * 0.5);
+        });
+        gLinks.forEach((l) => {
+            gNodes[l.s].rel[l.type] = (gNodes[l.s].rel[l.type] || 0) + 1;
+            gNodes[l.t].rel[l.type] = (gNodes[l.t].rel[l.type] || 0) + 1;
+        });
+
+        const count = Math.max(gNodes.length, 1);
+        const worldW = Math.max(1500, Math.min(4600, Math.sqrt(count) * 96));
+        const worldH = Math.max(950, Math.min(3200, Math.sqrt(count) * 72));
+        const cx = worldW / 2;
+        const cy = worldH / 2;
+
+        const serviceIdx = [];
+        const anchor = new Array(gNodes.length).fill(-1);
+        gNodes.forEach((n, i) => { if (n.type === 'Service') serviceIdx.push(i); });
+        gLinks.forEach((l) => {
+            const a = gNodes[l.s];
+            const b = gNodes[l.t];
+            if (a.type === 'Service' && b.type !== 'Service') anchor[l.t] = l.s;
+            else if (b.type === 'Service' && a.type !== 'Service') anchor[l.s] = l.t;
+        });
+
+        const placeInitial = () => {
+            const ringRadius = Math.min(worldW, worldH) * 0.26;
+            serviceIdx.forEach((ni, k) => {
+                const angle = (k / Math.max(serviceIdx.length, 1)) * Math.PI * 2 - Math.PI / 2;
+                gNodes[ni].x = cx + Math.cos(angle) * ringRadius;
+                gNodes[ni].y = cy + Math.sin(angle) * ringRadius;
+            });
+            gNodes.forEach((n, i) => {
+                if (n.type === 'Service') return;
+                const base = anchor[i] >= 0 ? gNodes[anchor[i]] : null;
+                const bx = base ? base.x : cx;
+                const by = base ? base.y : cy;
+                const angle = Math.random() * Math.PI * 2;
+                const dist = 30 + Math.random() * (base ? 210 : Math.min(worldW, worldH) * 0.3);
+                n.x = bx + Math.cos(angle) * dist;
+                n.y = by + Math.sin(angle) * dist;
+            });
+        };
+        placeInitial();
+
+        container.innerHTML = '';
+        const wrap = document.createElement('div');
+        wrap.className = 'graph-canvas-wrap';
+        const canvas = document.createElement('canvas');
+        canvas.className = 'graph-canvas';
+        wrap.appendChild(canvas);
+        container.appendChild(wrap);
+        const tooltip = document.createElement('div');
+        tooltip.className = 'graph-tooltip';
+        wrap.appendChild(tooltip);
+        const fsHint = document.createElement('div');
+        fsHint.className = 'graph-fs-hint';
+        fsHint.textContent = 'Esc to exit · drag bubbles · scroll to zoom · drag background to pan';
+        wrap.appendChild(fsHint);
+
+        const sim = {
+            nodes: gNodes,
+            links: gLinks,
+            wrap,
+            alpha: 1,
+            dragging: -1,
+            hovered: -1,
+            panning: null,
+            down: null,
+            raf: 0,
+            ac: new AbortController(),
+            tooltip,
+            camera: { scale: 1, ox: 0, oy: 0 },
+            dpr: 1,
+        };
+        this._serviceGraphSim = sim;
+
+        let cssW = 900;
+        let cssH = 560;
+        const resize = () => {
+            const rect = wrap.getBoundingClientRect();
+            cssW = Math.max(320, Math.round(rect.width || container.clientWidth || 900));
+            cssH = Math.max(360, Math.round(rect.height || 560));
+            sim.dpr = window.devicePixelRatio || 1;
+            canvas.width = Math.round(cssW * sim.dpr);
+            canvas.height = Math.round(cssH * sim.dpr);
+            canvas.style.width = cssW + 'px';
+            canvas.style.height = cssH + 'px';
+        };
+        const fitAll = () => {
+            const scale = Math.min(cssW / worldW, cssH / worldH) * 0.94;
+            sim.camera.scale = Math.max(0.05, Math.min(4, scale));
+            sim.camera.ox = (cssW - worldW * sim.camera.scale) / 2;
+            sim.camera.oy = (cssH - worldH * sim.camera.scale) / 2;
+        };
+        resize();
+        fitAll();
+
+        const draw = () => {
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+            const cam = sim.camera;
+            const dpr = sim.dpr;
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.setTransform(dpr * cam.scale, 0, 0, dpr * cam.scale, dpr * cam.ox, dpr * cam.oy);
+
+            ctx.lineCap = 'round';
+            for (const l of sim.links) {
+                const a = gNodes[l.s];
+                const b = gNodes[l.t];
+                const isDepend = l.type === 'DEPENDS_ON';
+                ctx.globalAlpha = isDepend ? 0.8 : 0.16;
+                ctx.strokeStyle = edgeColors[l.type] || '#7b8bb0';
+                ctx.lineWidth = (isDepend ? 1.8 : 1) / cam.scale;
+                ctx.setLineDash(isDepend ? [7 / cam.scale, 5 / cam.scale] : []);
+                ctx.beginPath();
+                ctx.moveTo(a.x, a.y);
+                ctx.lineTo(b.x, b.y);
+                ctx.stroke();
+            }
+            ctx.setLineDash([]);
+            ctx.globalAlpha = 1;
+
+            const showLogLabels = gNodes.length <= 90;
+            for (let i = 0; i < gNodes.length; i += 1) {
+                const n = gNodes[i];
+                const minR = n.type === 'Service' ? 9 : n.type === 'LogEntry' ? 1.5 : 3;
+                const r = Math.max(n.r, minR / cam.scale);
+                n.drawR = r;
+                ctx.beginPath();
+                ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+                ctx.fillStyle = n.color;
+                ctx.globalAlpha = n.type === 'LogEntry' ? 0.8 : 0.95;
+                ctx.fill();
+                if (n.type !== 'LogEntry') {
+                    ctx.globalAlpha = 1;
+                    ctx.lineWidth = (n.id === rootId ? 2.6 : (n.type === 'Service' ? 1.6 : 1)) / cam.scale;
+                    ctx.strokeStyle = n.id === rootId ? '#ffffff' : 'rgba(255,255,255,0.5)';
+                    ctx.stroke();
+                }
+                if (i === sim.hovered) {
+                    ctx.globalAlpha = 0.9;
+                    ctx.lineWidth = 1.5 / cam.scale;
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.beginPath();
+                    ctx.arc(n.x, n.y, r + 4 / cam.scale, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+            }
+            ctx.globalAlpha = 1;
+
+            // Labels live in screen space so they stay readable at any zoom.
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.lineJoin = 'round';
+            gNodes.forEach((n, i) => {
+                const isService = n.type === 'Service';
+                if (!isService && !(showLogLabels && n.type === 'LogEntry') && i !== sim.hovered) return;
+                const sx = n.x * cam.scale + cam.ox;
+                const sy = n.y * cam.scale + cam.oy + n.drawR * cam.scale + (isService ? 13 : 9);
+                if (sx < -80 || sx > cssW + 80 || sy < -30 || sy > cssH + 30) return;
+                const text = isService ? n.label : String(n.label).slice(0, 14);
+                ctx.font = `${isService ? '600 12px' : '11px'} ${fontFamily}`;
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = 'rgba(6, 10, 20, 0.88)';
+                ctx.strokeText(text, sx, sy);
+                ctx.fillStyle = isService ? (n.id === rootId ? '#ffffff' : '#cfe0ff') : '#c9d8f0';
+                ctx.fillText(text, sx, sy);
+            });
+        };
+
+        const cell = Math.max(90, Math.min(180, Math.min(worldW, worldH) / 14));
+        const cols = Math.ceil(worldW / cell);
+        const rows = Math.ceil(worldH / cell);
+        const tick = () => {
+            const n = gNodes.length;
+            const bins = new Array(cols * rows);
+            for (let i = 0; i < n; i += 1) {
+                const p = gNodes[i];
+                const gx = Math.min(cols - 1, Math.max(0, Math.floor(p.x / cell)));
+                const gy = Math.min(rows - 1, Math.max(0, Math.floor(p.y / cell)));
+                const bi = gy * cols + gx;
+                let bin = bins[bi];
+                if (!bin) bin = bins[bi] = { count: 0, sx: 0, sy: 0, items: [] };
+                bin.count += 1;
+                bin.sx += p.x;
+                bin.sy += p.y;
+                bin.items.push(i);
+                p.bin = bi;
+            }
+
+            for (let i = 0; i < n; i += 1) {
+                const p = gNodes[i];
+                if (p.pinned) continue;
+                let ax = (cx - p.x) * 0.0007;
+                let ay = (cy - p.y) * 0.0007;
+                for (let bi = 0; bi < bins.length; bi += 1) {
+                    const bin = bins[bi];
+                    if (!bin) continue;
+                    if (bi === p.bin) {
+                        for (let k = 0; k < bin.items.length; k += 1) {
+                            const j = bin.items[k];
+                            if (j === i) continue;
+                            const q = gNodes[j];
+                            const dx = p.x - q.x;
+                            const dy = p.y - q.y;
+                            const d2 = dx * dx + dy * dy + 4;
+                            const d = Math.sqrt(d2);
+                            const f = Math.min(9, 1600 / d2);
+                            ax += (dx / d) * f;
+                            ay += (dy / d) * f;
+                        }
+                    } else {
+                        // Approximate a whole cell as one charge at its centroid.
+                        const dx = p.x - bin.sx / bin.count;
+                        const dy = p.y - bin.sy / bin.count;
+                        const d2 = dx * dx + dy * dy + 900;
+                        const d = Math.sqrt(d2);
+                        const f = Math.min(7, (1500 * bin.count) / d2);
+                        ax += (dx / d) * f;
+                        ay += (dy / d) * f;
+                    }
+                }
+                p.ax = ax;
+                p.ay = ay;
+            }
+
+            for (const l of gLinks) {
+                const a = gNodes[l.s];
+                const b = gNodes[l.t];
+                const dx = b.x - a.x;
+                const dy = b.y - a.y;
+                const d = Math.sqrt(dx * dx + dy * dy) || 0.01;
+                const rest = l.type === 'DEPENDS_ON' ? 250 : 70;
+                const f = Math.max(-2.5, Math.min(2.5, (d - rest) * 0.012));
+                const fx = (dx / d) * f;
+                const fy = (dy / d) * f;
+                if (!a.pinned) { a.ax += fx; a.ay += fy; }
+                if (!b.pinned) { b.ax -= fx; b.ay -= fy; }
+            }
+
+            // Keep service bubbles apart so their labels stay readable.
+            for (let a = 0; a < serviceIdx.length; a += 1) {
+                for (let b = a + 1; b < serviceIdx.length; b += 1) {
+                    const na = gNodes[serviceIdx[a]];
+                    const nb = gNodes[serviceIdx[b]];
+                    const dx = nb.x - na.x;
+                    const dy = nb.y - na.y;
+                    const d = Math.sqrt(dx * dx + dy * dy) || 0.01;
+                    if (d >= 240) continue;
+                    const f = (240 - d) * 0.06;
+                    const fx = (dx / d) * f;
+                    const fy = (dy / d) * f;
+                    if (!na.pinned) { na.ax -= fx; na.ay -= fy; }
+                    if (!nb.pinned) { nb.ax += fx; nb.ay += fy; }
+                }
+            }
+
+            const margin = 40;
+            for (let i = 0; i < n; i += 1) {
+                const p = gNodes[i];
+                if (p.pinned) { p.vx = 0; p.vy = 0; continue; }
+                if (p.x < margin) p.ax += (margin - p.x) * 0.02;
+                else if (p.x > worldW - margin) p.ax -= (p.x - (worldW - margin)) * 0.02;
+                if (p.y < margin) p.ay += (margin - p.y) * 0.02;
+                else if (p.y > worldH - margin) p.ay -= (p.y - (worldH - margin)) * 0.02;
+
+                p.vx = (p.vx + p.ax) * 0.9;
+                p.vy = (p.vy + p.ay) * 0.9;
+                const speed = Math.hypot(p.vx, p.vy);
+                if (speed > 22) {
+                    p.vx = (p.vx / speed) * 22;
+                    p.vy = (p.vy / speed) * 22;
+                }
+                p.x += p.vx;
+                p.y += p.vy;
+            }
+        };
+
+        const loop = () => {
+            sim.raf = 0;
+            if (sim.alpha > 0.04 || sim.dragging >= 0) {
+                tick();
+                sim.alpha *= 0.985;
+                draw();
+                sim.raf = requestAnimationFrame(loop);
+            } else {
+                draw();
+            }
+        };
+        const kick = () => {
+            if (!sim.raf) sim.raf = requestAnimationFrame(loop);
+        };
+        sim.tick = tick;
+        sim.draw = draw;
+        kick();
+
+        const pointerPos = (ev) => {
+            const rect = canvas.getBoundingClientRect();
+            return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
+        };
+        const pick = (mx, my) => {
+            const cam = sim.camera;
+            const wx = (mx - cam.ox) / cam.scale;
+            const wy = (my - cam.oy) / cam.scale;
+            let best = -1;
+            let bestD = Infinity;
+            for (let i = 0; i < gNodes.length; i += 1) {
+                const n = gNodes[i];
+                const base = Math.max(n.drawR || n.r, (n.type === 'Service' ? 10 : n.type === 'LogEntry' ? 2 : 4) / cam.scale);
+                const rr = base + 5 / cam.scale;
+                const dx = wx - n.x;
+                const dy = wy - n.y;
+                const d2 = dx * dx + dy * dy;
+                if (d2 <= rr * rr && d2 < bestD) {
+                    bestD = d2;
+                    best = i;
+                }
+            }
+            return best;
+        };
+        const showTip = (i, mx, my) => {
+            if (i < 0) {
+                tooltip.style.display = 'none';
+                return;
+            }
+            const n = gNodes[i];
+            const relText = Object.entries(n.rel || {}).map(([k, v]) => `${k} ${v}`).join(' · ');
+            tooltip.textContent = `${n.label} · ${n.type}${relText ? ' · ' + relText : ''}`;
+            tooltip.style.left = mx + 'px';
+            tooltip.style.top = my + 'px';
+            tooltip.style.display = 'block';
+        };
+
+        const onDown = (ev) => {
+            const p = pointerPos(ev);
+            const i = pick(p.x, p.y);
+            sim.down = { x: p.x, y: p.y, i, moved: false };
+            tooltip.style.display = 'none';
+            if (i >= 0) {
+                sim.dragging = i;
+                gNodes[i].pinned = true;
+                gNodes[i].vx = 0;
+                gNodes[i].vy = 0;
+                kick();
+            } else {
+                sim.panning = { x: p.x, y: p.y, ox: sim.camera.ox, oy: sim.camera.oy };
+            }
+            if (canvas.setPointerCapture) canvas.setPointerCapture(ev.pointerId);
+            ev.preventDefault();
+        };
+        const onMove = (ev) => {
+            const p = pointerPos(ev);
+            if (sim.dragging >= 0) {
+                const n = gNodes[sim.dragging];
+                const wx = (p.x - sim.camera.ox) / sim.camera.scale;
+                const wy = (p.y - sim.camera.oy) / sim.camera.scale;
+                n.vx = (wx - n.x) * 0.6;
+                n.vy = (wy - n.y) * 0.6;
+                n.x = wx;
+                n.y = wy;
+                sim.alpha = Math.max(sim.alpha, 0.5);
+                if (sim.down && Math.hypot(p.x - sim.down.x, p.y - sim.down.y) > 4) sim.down.moved = true;
+                draw();
+                kick();
+                return;
+            }
+            if (sim.panning) {
+                sim.camera.ox = sim.panning.ox + (p.x - sim.panning.x);
+                sim.camera.oy = sim.panning.oy + (p.y - sim.panning.y);
+                if (sim.down && Math.hypot(p.x - sim.down.x, p.y - sim.down.y) > 4) sim.down.moved = true;
+                draw();
+                return;
+            }
+            const i = pick(p.x, p.y);
+            if (i !== sim.hovered) {
+                sim.hovered = i;
+                draw();
+            }
+            canvas.style.cursor = i >= 0 ? 'grab' : 'grab';
+            showTip(i, p.x, p.y);
+        };
+        const onUp = () => {
+            if (sim.dragging >= 0) {
+                const i = sim.dragging;
+                const n = gNodes[i];
+                n.pinned = false;
+                const speed = Math.hypot(n.vx, n.vy);
+                if (speed > 18) {
+                    n.vx = (n.vx / speed) * 18;
+                    n.vy = (n.vy / speed) * 18;
+                }
+                if (sim.down && !sim.down.moved && n.orig) {
+                    this.showNodeDetail(n.orig);
+                }
+                sim.dragging = -1;
+                if (sim.down && sim.down.moved) sim.alpha = Math.max(sim.alpha, 0.25);
+                kick();
+            }
+            sim.panning = null;
+            sim.down = null;
+            canvas.style.cursor = 'grab';
+            tooltip.style.display = 'none';
+        };
+        const onWheel = (ev) => {
+            ev.preventDefault();
+            const p = pointerPos(ev);
+            const cam = sim.camera;
+            const factor = Math.exp(-ev.deltaY * 0.0015);
+            const next = Math.max(0.04, Math.min(6, cam.scale * factor));
+            const k = next / cam.scale;
+            cam.ox = p.x - (p.x - cam.ox) * k;
+            cam.oy = p.y - (p.y - cam.oy) * k;
+            cam.scale = next;
+            draw();
+        };
+        const onDblClick = (ev) => {
+            const p = pointerPos(ev);
+            if (pick(p.x, p.y) < 0) {
+                fitAll();
+                sim.alpha = Math.max(sim.alpha, 0.25);
+                draw();
+                kick();
+            }
+        };
+        const onResize = () => {
+            resize();
+            fitAll();
+            draw();
+        };
+
+        const signal = sim.ac.signal;
+        canvas.addEventListener('pointerdown', onDown, { signal });
+        canvas.addEventListener('pointermove', onMove, { signal });
+        canvas.addEventListener('pointerup', onUp, { signal });
+        canvas.addEventListener('pointercancel', onUp, { signal });
+        canvas.addEventListener('pointerleave', () => {
+            sim.hovered = -1;
+            tooltip.style.display = 'none';
+            draw();
+        }, { signal });
+        canvas.addEventListener('wheel', onWheel, { signal, passive: false });
+        canvas.addEventListener('dblclick', onDblClick, { signal });
+        window.addEventListener('resize', onResize, { signal });
+
+        this._serviceGraphReset = () => {
+            placeInitial();
+            gNodes.forEach((n) => {
+                n.vx = 0;
+                n.vy = 0;
+                n.pinned = false;
+            });
+            sim.alpha = 1;
+            fitAll();
+            draw();
+            kick();
+        };
+
+        const fsBtn = document.getElementById('serviceGraphFullscreen');
+        const onFullscreenChange = () => {
+            const active = document.fullscreenElement === wrap;
+            if (fsBtn) fsBtn.textContent = active ? 'Exit fullscreen' : 'Fullscreen';
+            requestAnimationFrame(() => {
+                resize();
+                fitAll();
+                draw();
+            });
+            setTimeout(() => {
+                resize();
+                fitAll();
+                draw();
+            }, 140);
+        };
+        document.addEventListener('fullscreenchange', onFullscreenChange, { signal });
+        this._serviceGraphFullscreenToggle = () => {
+            if (document.fullscreenElement === wrap) {
+                if (document.exitFullscreen) {
+                    const p = document.exitFullscreen();
+                    if (p && p.catch) p.catch(() => {});
+                }
+                return;
+            }
+            if (wrap.requestFullscreen) {
+                const p = wrap.requestFullscreen();
+                if (p && p.catch) p.catch((e) => this.showToast('Fullscreen unavailable: ' + e.message, 'error'));
+            }
+        };
     }
 
     showServiceNode(id) {
@@ -1280,8 +1969,12 @@ class RAGApp {
 
         // Embeddings
         const emb = status.embedding || {};
+        const embConfigured = Boolean(emb.provider && emb.model);
+        const embLabel = emb.provider === 'sentence-transformers'
+            ? 'Local · on-device'
+            : embConfigured ? 'API · hosted' : 'Not configured';
         document.getElementById('embedStatus').innerHTML =
-            `${dot(emb.provider === 'sentence-transformers')} ${emb.provider === 'sentence-transformers' ? 'Local · offline' : 'API'}`;
+            `${dot(embConfigured)} ${embLabel}`;
         document.getElementById('embedDetails').innerHTML = `
             <div class="detail-line"><span>Provider</span><span>${this.escapeHtml(emb.provider || '—')}</span></div>
             <div class="detail-line"><span>Model</span><span>${this.escapeHtml(emb.model || '—')}</span></div>
@@ -1334,5 +2027,5 @@ class RAGApp {
 // ============================================================
 let app;
 document.addEventListener('DOMContentLoaded', () => {
-    app = new RAGApp();
+    app = new GraphRCAApp();
 });
