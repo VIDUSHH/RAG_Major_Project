@@ -145,10 +145,14 @@ def ingest_file(
     org_id = organization_id or ctx.organization_id
     proj_id = project_id or "default"
 
-    # Save file temporarily
+    # Save file temporarily, preserving the original filename. Format-specific
+    # parsers and the cited source name depend on the real filename, so we store
+    # each upload in its own directory instead of renaming it to a UUID.
     file_id = str(uuid.uuid4())
-    file_ext = Path(file.filename).suffix
-    temp_path = UPLOAD_DIR / f"{file_id}{file_ext}"
+    safe_name = Path(file.filename).name or f"{file_id}.log"
+    file_dir = UPLOAD_DIR / file_id
+    file_dir.mkdir(parents=True, exist_ok=True)
+    temp_path = file_dir / safe_name
 
     try:
         with open(temp_path, "wb") as buffer:
@@ -224,8 +228,7 @@ def ingest_file(
             detail=f"Ingestion failed: {str(e)}",
         ) from e
     finally:
-        if temp_path.exists():
-            temp_path.unlink()
+        shutil.rmtree(file_dir, ignore_errors=True)
 
 
 @router.post("/batch", summary="Ingest multiple files")
@@ -242,11 +245,14 @@ def ingest_batch(
 
     results = []
     for file in files:
+        file_dir = None
         try:
             validate_file(file)
             file_id = str(uuid.uuid4())
-            file_ext = Path(file.filename).suffix
-            temp_path = UPLOAD_DIR / f"{file_id}{file_ext}"
+            safe_name = Path(file.filename).name or f"{file_id}.log"
+            file_dir = UPLOAD_DIR / file_id
+            file_dir.mkdir(parents=True, exist_ok=True)
+            temp_path = file_dir / safe_name
 
             with open(temp_path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
@@ -295,8 +301,6 @@ def ingest_batch(
                     status="warning",
                 )
 
-            temp_path.unlink()
-
         except Exception as e:
             logger.error(f"Batch ingestion failed for {file.filename}: {e}")
             results.append(
@@ -313,6 +317,9 @@ def ingest_batch(
                 status="failed",
                 detail=str(e)[:300],
             )
+        finally:
+            if file_dir is not None:
+                shutil.rmtree(file_dir, ignore_errors=True)
 
     return {
         "total_files": len(files),
@@ -442,11 +449,14 @@ def _store_chunks_in_neo4j(neo4j, chunks, org_id, proj_id):
         for service_name, service_chunks_list in service_chunks.items():
             service_id = f"service-{service_name}"
 
-            # Create service node
+            # Create service node (bind the existing Project first so the
+            # relationship MERGE never tries to create a duplicate Project).
             session.run(
                 """
-                MERGE (s:Service {id: $service_id, name: $service_name})
-                MERGE (p:Project {id: $proj_id})-[:HAS_SERVICE]->(s)
+                MATCH (p:Project {id: $proj_id})
+                MERGE (s:Service {id: $service_id})
+                SET s.name = $service_name
+                MERGE (p)-[:HAS_SERVICE]->(s)
             """,
                 service_id=service_id,
                 service_name=service_name,
@@ -459,16 +469,14 @@ def _store_chunks_in_neo4j(neo4j, chunks, org_id, proj_id):
                     session.run(
                         """
                         MATCH (s:Service {id: $service_id})
-                        CREATE (le:LogEntry {
-                            id: $chunk_id,
-                            text: $text,
-                            service: $service,
-                            level: $level,
-                            timestamp: $timestamp,
-                            source: $source,
-                            organization_id: $org_id,
-                            project_id: $proj_id
-                        })
+                        MERGE (le:LogEntry {id: $chunk_id})
+                        SET le.text = $text,
+                            le.service = $service,
+                            le.level = $level,
+                            le.timestamp = $timestamp,
+                            le.source = $source,
+                            le.organization_id = $org_id,
+                            le.project_id = $proj_id
                         MERGE (s)-[:PRODUCED_LOG]->(le)
                     """,
                         service_id=service_id,
