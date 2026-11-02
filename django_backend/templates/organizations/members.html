@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}Manage Members - {{ organization.name }} - RAG Postmortem Intelligence{% endblock %}
+{% block title %}Manage Members - {{ organization.name }} - GraphRCA{% endblock %}
 
 {% block content %}
 <div class="page-header d-flex justify-content-between align-items-center mb-4">
@@ -8,7 +8,7 @@
         <h1 class="page-title">Manage Members</h1>
         <p class="page-subtitle">{{ organization.name }}</p>
     </div>
-    <a href="{% url 'organization_detail' organization.pk %}" class="btn btn-outline-secondary">
+    <a href="{% url 'organizations:organization_detail' organization.pk %}" class="btn btn-outline-secondary">
         <i class="bi bi-arrow-left me-1"></i> Back
     </a>
 </div>
@@ -44,7 +44,7 @@
                                     <span class="badge bg-secondary">{{ membership.get_role_display }}</span>
                                     <span class="badge bg-info ms-1">You</span>
                                 {% else %}
-                                    <form method="post" class="d-inline" action="{% url 'organization_members' organization.pk %}">
+                                    <form method="post" class="d-inline" action="{% url 'organizations:organization_members' organization.pk %}">
                                         {% csrf_token %}
                                         <input type="hidden" name="action" value="update_role">
                                         <input type="hidden" name="user_id" value="{{ membership.user.pk }}">
@@ -61,7 +61,7 @@
                             <td>{{ membership.joined_at|date:"M d, Y" }}</td>
                             <td>
                                 {% if membership.user != request.user %}
-                                <form method="post" class="d-inline" action="{% url 'organization_members' organization.pk %}" onsubmit="return confirm('Are you sure you want to remove this member?');">
+                                <form method="post" class="d-inline" action="{% url 'organizations:organization_members' organization.pk %}" onsubmit="return confirm('Are you sure you want to remove this member?');">
                                     {% csrf_token %}
                                     <input type="hidden" name="action" value="remove">
                                     <input type="hidden" name="user_id" value="{{ membership.user.pk }}">
@@ -70,7 +70,7 @@
                                     </button>
                                 </form>
                                 {% else %}
-                                <span class="text-muted">—</span>
+                                <span class="text-muted">â€”</span>
                                 {% endif %}
                             </td>
                         </tr>

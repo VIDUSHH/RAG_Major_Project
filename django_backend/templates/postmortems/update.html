@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}Edit {{ postmortem.title }} - RAG Postmortem Intelligence{% endblock %}
+{% block title %}Edit {{ postmortem.title }} - GraphRCA{% endblock %}
 
 {% block content %}
 <div class="page-header d-flex justify-content-between align-items-center mb-4">
@@ -8,7 +8,7 @@
         <h1 class="page-title">Edit Postmortem</h1>
         <p class="page-subtitle">Update postmortem details</p>
     </div>
-    <a href="{% url 'postmortem_detail' postmortem.pk %}" class="btn btn-outline-secondary">
+    <a href="{% url 'postmortems:postmortem_detail' postmortem.pk %}" class="btn btn-outline-secondary">
         <i class="bi bi-arrow-left me-1"></i> Back
     </a>
 </div>
@@ -56,7 +56,7 @@
                     </div>
                     
                     <div class="d-flex justify-content-end gap-2">
-                        <a href="{% url 'postmortem_detail' postmortem.pk %}" class="btn btn-outline-secondary">Cancel</a>
+                        <a href="{% url 'postmortems:postmortem_detail' postmortem.pk %}" class="btn btn-outline-secondary">Cancel</a>
                         <button type="submit" class="btn btn-primary">
                             <i class="bi bi-check-circle me-1"></i> Save Changes
                         </button>

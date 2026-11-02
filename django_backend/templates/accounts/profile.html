@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}Profile - RAG Postmortem Intelligence{% endblock %}
+{% block title %}Profile - GraphRCA{% endblock %}
 
 {% block content %}
 <div class="page-header d-flex justify-content-between align-items-center mb-4">
@@ -85,7 +85,7 @@
                             {% for membership in user.organization_memberships.all %}
                             <tr>
                                 <td>
-                                    <a href="{% url 'organization_detail' membership.organization.pk %}" class="text-decoration-none fw-medium">
+                                    <a href="{% url 'organizations:organization_detail' membership.organization.pk %}" class="text-decoration-none fw-medium">
                                         {{ membership.organization.name }}
                                     </a>
                                 </td>

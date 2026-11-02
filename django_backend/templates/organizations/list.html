@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}Organizations - RAG Postmortem Intelligence{% endblock %}
+{% block title %}Organizations - GraphRCA{% endblock %}
 
 {% block content %}
 <div class="page-header d-flex justify-content-between align-items-center mb-4">
@@ -8,7 +8,7 @@
         <h1 class="page-title">Organizations</h1>
         <p class="page-subtitle">Manage your organizations and teams</p>
     </div>
-    <a href="{% url 'organization_create' %}" class="btn btn-primary">
+    <a href="{% url 'organizations:organization_create' %}" class="btn btn-primary">
         <i class="bi bi-plus-circle me-1"></i> Create Organization
     </a>
 </div>
@@ -32,29 +32,31 @@
                         {% for org in organizations %}
                         <tr>
                             <td>
-                                <a href="{% url 'organization_detail' org.pk %}" class="text-decoration-none fw-medium">
+                                <a href="{% url 'organizations:organization_detail' org.pk %}" class="text-decoration-none fw-medium">
                                     {{ org.name }}
                                 </a>
                             </td>
                             <td>{{ org.project_count }}</td>
                             <td>{{ org.member_count }}</td>
                             <td>
-                                <span class="badge bg-secondary">{{ org.memberships.all|first.role }}</span>
+                                {% with membership=org.memberships.all|first %}<span class="badge bg-secondary">{{ membership.role }}</span>{% endwith %}
                             </td>
                             <td>{{ org.created_at|date:"M d, Y" }}</td>
                             <td>
                                 <div class="btn-group btn-group-sm">
-                                    <a href="{% url 'organization_detail' org.pk %}" class="btn btn-outline-primary" title="View">
+                                    <a href="{% url 'organizations:organization_detail' org.pk %}" class="btn btn-outline-primary" title="View">
                                         <i class="bi bi-eye"></i>
                                     </a>
-                                    {% if org.memberships.all|first.role == "OWNER" or org.memberships.all|first.role == "ADMIN" %}
-                                    <a href="{% url 'organization_update' org.pk %}" class="btn btn-outline-secondary" title="Edit">
+                                    {% with membership=org.memberships.all|first %}
+                                    {% if membership.role == "OWNER" or membership.role == "ADMIN" %}
+                                    <a href="{% url 'organizations:organization_update' org.pk %}" class="btn btn-outline-secondary" title="Edit">
                                         <i class="bi bi-pencil"></i>
                                     </a>
-                                    <a href="{% url 'organization_delete' org.pk %}" class="btn btn-outline-danger" title="Delete" data-confirm="Are you sure you want to delete {{ org.name }}?">
+                                    <a href="{% url 'organizations:organization_delete' org.pk %}" class="btn btn-outline-danger" title="Delete" data-confirm="Are you sure you want to delete {{ org.name }}?">
                                         <i class="bi bi-trash"></i>
                                     </a>
                                     {% endif %}
+                                    {% endwith %}
                                 </div>
                             </td>
                         </tr>
@@ -95,7 +97,7 @@
                 <i class="bi bi-building"></i>
                 <h5>No organizations yet</h5>
                 <p>Create your first organization to get started</p>
-                <a href="{% url 'organization_create' %}" class="btn btn-primary mt-2">
+                <a href="{% url 'organizations:organization_create' %}" class="btn btn-primary mt-2">
                     <i class="bi bi-plus-circle me-1"></i> Create Organization
                 </a>
             </div>

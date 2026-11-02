@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% load static %}
 
-{% block title %}Dashboard - RAG Postmortem Intelligence{% endblock %}
+{% block title %}Dashboard - GraphRCA{% endblock %}
 
 {% block content %}
 <div class="page-header d-flex justify-content-between align-items-center mb-4">
@@ -10,7 +10,7 @@
         <p class="page-subtitle">Overview of your postmortem intelligence system</p>
     </div>
     <div>
-        <a href="{% url 'incident_create' %}" class="btn btn-primary">
+        <a href="{% url 'incidents:incident_create' %}" class="btn btn-primary">
             <i class="bi bi-plus-circle me-1"></i> New Incident
         </a>
     </div>
@@ -133,7 +133,7 @@
         <div class="card h-100">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="bi bi-exclamation-triangle me-2"></i>Recent Incidents</h5>
-                <a href="{% url 'incident_list' %}" class="btn btn-sm btn-outline-primary">View All</a>
+                <a href="{% url 'incidents:incident_list' %}" class="btn btn-sm btn-outline-primary">View All</a>
             </div>
             <div class="card-body p-0">
                 {% if recent_incidents %}
@@ -152,12 +152,12 @@
                                 {% for incident in recent_incidents %}
                                 <tr>
                                     <td>
-                                        <a href="{% url 'incident_detail' incident.pk %}" class="text-decoration-none fw-medium">
+                                        <a href="{% url 'incidents:incident_detail' incident.pk %}" class="text-decoration-none fw-medium">
                                             {{ incident.title|truncatechars:50 }}
                                         </a>
                                     </td>
                                     <td>
-                                        <a href="{% url 'project_detail' incident.project.pk %}" class="text-decoration-none">
+                                        <a href="{% url 'projects:project_detail' incident.project.pk %}" class="text-decoration-none">
                                             {{ incident.project.name }}
                                         </a>
                                     </td>
@@ -182,7 +182,7 @@
                         <i class="bi bi-exclamation-triangle"></i>
                         <h5>No incidents yet</h5>
                         <p>Create your first incident to get started</p>
-                        <a href="{% url 'incident_create' %}" class="btn btn-primary mt-2">
+                        <a href="{% url 'incidents:incident_create' %}" class="btn btn-primary mt-2">
                             <i class="bi bi-plus-circle me-1"></i> Create Incident
                         </a>
                     </div>
@@ -196,7 +196,7 @@
         <div class="card h-100">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="bi bi-file-earmark-text me-2"></i>Recent Postmortems</h5>
-                <a href="{% url 'postmortem_list' %}" class="btn btn-sm btn-outline-primary">View All</a>
+                <a href="{% url 'postmortems:postmortem_list' %}" class="btn btn-sm btn-outline-primary">View All</a>
             </div>
             <div class="card-body p-0">
                 {% if recent_postmortems %}
@@ -213,12 +213,12 @@
                                 {% for pm in recent_postmortems %}
                                 <tr>
                                     <td>
-                                        <a href="{% url 'postmortem_detail' pm.pk %}" class="text-decoration-none fw-medium">
+                                        <a href="{% url 'postmortems:postmortem_detail' pm.pk %}" class="text-decoration-none fw-medium">
                                             {{ pm.title|truncatechars:40 }}
                                         </a>
                                     </td>
                                     <td>
-                                        <a href="{% url 'incident_detail' pm.incident.pk %}" class="text-decoration-none text-muted small">
+                                        <a href="{% url 'incidents:incident_detail' pm.incident.pk %}" class="text-decoration-none text-muted small">
                                             {{ pm.incident.title|truncatechars:30 }}
                                         </a>
                                     </td>
@@ -257,7 +257,7 @@
                             <span>{{ item.count }}</span>
                             <div class="progress flex-grow-1 ms-3" style="max-width: 100px; height: 8px;">
                                 <div class="progress-bar bg-{{ item.severity|lower }}{% if item.severity == 'P3' %} text-dark{% endif %}" 
-                                     style="width: {{ item.count|divisible:stats.incidents_open|mul:100 }}%"></div>
+                                     style="width: {% widthratio item.count stats.incidents_open 100 %}%"></div>
                             </div>
                         </div>
                         {% endfor %}
@@ -282,28 +282,28 @@
             <div class="card-body">
                 <div class="row g-3">
                     <div class="col-md-3">
-                        <a href="{% url 'incident_create' %}" class="btn btn-outline-primary w-100 p-3 text-start">
+                        <a href="{% url 'incidents:incident_create' %}" class="btn btn-outline-primary w-100 p-3 text-start">
                             <i class="bi bi-exclamation-triangle fs-3"></i>
                             <div class="mt-2 fw-medium">New Incident</div>
                             <small class="text-muted">Report a new incident</small>
                         </a>
                     </div>
                     <div class="col-md-3">
-                        <a href="{% url 'postmortem_create' %}" class="btn btn-outline-success w-100 p-3 text-start">
+                        <a href="{% url 'postmortems:postmortem_create' %}" class="btn btn-outline-success w-100 p-3 text-start">
                             <i class="bi bi-file-earmark-plus fs-3"></i>
                             <div class="mt-2 fw-medium">Create Postmortem</div>
                             <small class="text-muted">Document lessons learned</small>
                         </a>
                     </div>
                     <div class="col-md-3">
-                        <a href="{% url 'service_create' %}" class="btn btn-outline-info w-100 p-3 text-start">
+                        <a href="{% url 'services:service_create' %}" class="btn btn-outline-info w-100 p-3 text-start">
                             <i class="bi bi-server fs-3"></i>
                             <div class="mt-2 fw-medium">Register Service</div>
                             <small class="text-muted">Add a new service</small>
                         </a>
                     </div>
                     <div class="col-md-3">
-                        <a href="{% url 'logsource_create' %}" class="btn btn-outline-warning w-100 p-3 text-start">
+                        <a href="{% url 'log_sources:logsource_create' %}" class="btn btn-outline-warning w-100 p-3 text-start">
                             <i class="bi bi-hdd-network fs-3"></i>
                             <div class="mt-2 fw-medium">Add Log Source</div>
                             <small class="text-muted">Configure log ingestion</small>

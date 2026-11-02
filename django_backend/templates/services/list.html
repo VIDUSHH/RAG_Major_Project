@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}Services - RAG Postmortem Intelligence{% endblock %}
+{% block title %}Services - GraphRCA{% endblock %}
 
 {% block content %}
 <div class="page-header d-flex justify-content-between align-items-center mb-4">
@@ -8,7 +8,7 @@
         <h1 class="page-title">Services</h1>
         <p class="page-subtitle">Manage your registered services</p>
     </div>
-    <a href="{% url 'service_create' %}" class="btn btn-primary">
+    <a href="{% url 'services:service_create' %}" class="btn btn-primary">
         <i class="bi bi-plus-circle me-1"></i> Register Service
     </a>
 </div>
@@ -44,7 +44,7 @@
             </div>
             <div class="col-md-3 d-flex gap-2">
                 <button type="submit" class="btn btn-primary"><i class="bi bi-search me-1"></i> Filter</button>
-                <a href="{% url 'service_list' %}" class="btn btn-outline-secondary">Clear</a>
+                <a href="{% url 'services:service_list' %}" class="btn btn-outline-secondary">Clear</a>
             </div>
         </form>
     </div>
@@ -70,12 +70,12 @@
                         {% for service in services %}
                         <tr>
                             <td>
-                                <a href="{% url 'service_detail' service.pk %}" class="text-decoration-none fw-medium">
+                                <a href="{% url 'services:service_detail' service.pk %}" class="text-decoration-none fw-medium">
                                     {{ service.name }}
                                 </a>
                             </td>
                             <td>
-                                <a href="{% url 'project_detail' service.project.pk %}" class="text-decoration-none">
+                                <a href="{% url 'projects:project_detail' service.project.pk %}" class="text-decoration-none">
                                     {{ service.project.organization.name }} / {{ service.project.name }}
                                 </a>
                             </td>
@@ -91,15 +91,15 @@
                                     <i class="bi bi-github me-1"></i> View
                                 </a>
                                 {% else %}
-                                <span class="text-muted">—</span>
+                                <span class="text-muted">â€”</span>
                                 {% endif %}
                             </td>
                             <td>{{ service.created_at|date:"M d, Y" }}</td>
                             <td>
                                 <div class="btn-group btn-group-sm">
-                                    <a href="{% url 'service_detail' service.pk %}" class="btn btn-outline-primary" title="View"><i class="bi bi-eye"></i></a>
-                                    <a href="{% url 'service_update' service.pk %}" class="btn btn-outline-secondary" title="Edit"><i class="bi bi-pencil"></i></a>
-                                    <a href="{% url 'service_delete' service.pk %}" class="btn btn-outline-danger" title="Delete" data-confirm="Are you sure you want to delete {{ service.name }}?"><i class="bi bi-trash"></i></a>
+                                    <a href="{% url 'services:service_detail' service.pk %}" class="btn btn-outline-primary" title="View"><i class="bi bi-eye"></i></a>
+                                    <a href="{% url 'services:service_update' service.pk %}" class="btn btn-outline-secondary" title="Edit"><i class="bi bi-pencil"></i></a>
+                                    <a href="{% url 'services:service_delete' service.pk %}" class="btn btn-outline-danger" title="Delete" data-confirm="Are you sure you want to delete {{ service.name }}?"><i class="bi bi-trash"></i></a>
                                 </div>
                             </td>
                         </tr>
@@ -131,7 +131,7 @@
                 <h5>No services registered</h5>
                 <p>{% if search_query or selected_project or selected_type %}Try adjusting your filters{% else %}Register your first service to start tracking incidents{% endif %}</p>
                 {% if not search_query and not selected_project and not selected_type %}
-                <a href="{% url 'service_create' %}" class="btn btn-primary mt-2"><i class="bi bi-plus-circle me-1"></i> Register Service</a>
+                <a href="{% url 'services:service_create' %}" class="btn btn-primary mt-2"><i class="bi bi-plus-circle me-1"></i> Register Service</a>
                 {% endif %}
             </div>
         {% endif %}

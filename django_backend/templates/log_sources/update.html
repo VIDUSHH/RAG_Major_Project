@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}Edit {{ log_source.name }} - RAG Postmortem Intelligence{% endblock %}
+{% block title %}Edit {{ log_source.name }} - GraphRCA{% endblock %}
 
 {% block content %}
 <div class="page-header d-flex justify-content-between align-items-center mb-4">
@@ -8,7 +8,7 @@
         <h1 class="page-title">Edit Log Source</h1>
         <p class="page-subtitle">Update log source configuration</p>
     </div>
-    <a href="{% url 'logsource_detail' log_source.pk %}" class="btn btn-outline-secondary">
+    <a href="{% url 'log_sources:logsource_detail' log_source.pk %}" class="btn btn-outline-secondary">
         <i class="bi bi-arrow-left me-1"></i> Back
     </a>
 </div>
@@ -66,7 +66,7 @@
                     </div>
                     
                     <div class="d-flex justify-content-end gap-2">
-                        <a href="{% url 'logsource_detail' log_source.pk %}" class="btn btn-outline-secondary">Cancel</a>
+                        <a href="{% url 'log_sources:logsource_detail' log_source.pk %}" class="btn btn-outline-secondary">Cancel</a>
                         <button type="submit" class="btn btn-primary">
                             <i class="bi bi-check-circle me-1"></i> Save Changes
                         </button>
