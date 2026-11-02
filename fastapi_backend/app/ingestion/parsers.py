@@ -329,6 +329,139 @@ class AndroidLogParser(LogParser):
                 )
 
 
+class HadoopLogParser(LogParser):
+    """Parser for Hadoop/YARN logs."""
+
+    PATTERN = re.compile(
+        r"^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2},\d{3})\s+(\w+)\s+\[([^\]]+)\]\s+([\w\.$]+):\s+(.+)$"
+    )
+
+    LEVEL_MAP = {
+        "TRACE": "DEBUG",
+        "DEBUG": "DEBUG",
+        "INFO": "INFO",
+        "WARN": "WARN",
+        "ERROR": "ERROR",
+        "FATAL": "CRITICAL",
+    }
+
+    def parse(self, filepath: Path) -> Generator[ParsedEntry, None, None]:
+        with self._open_file(filepath) as f:
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                if not line:
+                    continue
+
+                match = self.PATTERN.match(line)
+                if not match:
+                    continue
+
+                timestamp_str, level, thread, logger, message = match.groups()
+
+                try:
+                    timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S,%f")
+                except ValueError:
+                    timestamp = datetime.now()
+
+                service = self._extract_service(logger)
+                mapped_level = self.LEVEL_MAP.get(level.upper(), "INFO")
+
+                yield ParsedEntry(
+                    timestamp=timestamp,
+                    service=service,
+                    host=thread,
+                    level=mapped_level,
+                    message=message,
+                    raw={"logger": logger, "thread": thread, "original_level": level},
+                    source_file=filepath.name,
+                    source_type=self.source_type,
+                    line_number=line_num,
+                )
+
+    def _extract_service(self, logger: str) -> str:
+        """Extract service name from logger class."""
+        if "mapreduce" in logger.lower():
+            return "mapreduce"
+        elif "yarn" in logger.lower():
+            return "yarn"
+        elif "hdfs" in logger.lower():
+            return "hdfs"
+        elif "hbase" in logger.lower():
+            return "hbase"
+        elif "zookeeper" in logger.lower():
+            return "zookeeper"
+        elif "spark" in logger.lower():
+            return "spark"
+        else:
+            parts = logger.split(".")
+            return parts[-2] if len(parts) >= 2 else "hadoop"
+
+
+class WindowsLogParser(LogParser):
+    """Parser for Windows Event logs (CBS, CSI, etc.)."""
+
+    PATTERN = re.compile(
+        r"^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}),\s+(\w+)\s+(\S+)\s+(.+)$"
+    )
+
+    LEVEL_MAP = {
+        "INFO": "INFO",
+        "WARNING": "WARN",
+        "ERROR": "ERROR",
+        "CRITICAL": "CRITICAL",
+        "VERBOSE": "DEBUG",
+    }
+
+    def parse(self, filepath: Path) -> Generator[ParsedEntry, None, None]:
+        with self._open_file(filepath) as f:
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                if not line:
+                    continue
+
+                match = self.PATTERN.match(line)
+                if not match:
+                    continue
+
+                timestamp_str, level, component, message = match.groups()
+
+                try:
+                    timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    timestamp = datetime.now()
+
+                service = self._extract_service(component)
+                mapped_level = self.LEVEL_MAP.get(level.upper(), "INFO")
+
+                yield ParsedEntry(
+                    timestamp=timestamp,
+                    service=service,
+                    host="windows",
+                    level=mapped_level,
+                    message=message,
+                    raw={"component": component, "original_level": level},
+                    source_file=filepath.name,
+                    source_type=self.source_type,
+                    line_number=line_num,
+                )
+
+    def _extract_service(self, component: str) -> str:
+        """Map Windows component to service name."""
+        component_lower = component.lower()
+        if "cbs" in component_lower:
+            return "cbs"
+        elif "csi" in component_lower:
+            return "csi"
+        elif "trustedinstaller" in component_lower:
+            return "trustedinstaller"
+        elif "windowsupdate" in component_lower or "wuauserv" in component_lower:
+            return "windowsupdate"
+        elif "sqm" in component_lower:
+            return "sqm"
+        else:
+            return component.lower()
+
+
 class JSONLogParser(LogParser):
     """Parser for JSON Lines format logs."""
 
@@ -640,6 +773,8 @@ class ParserFactory:
         "HealthApp.log": HealthAppLogParser(),
         "Apache.log": ApacheLogParser(),
         "Android.log": AndroidLogParser(),
+        "Hadoop_2k.log": HadoopLogParser(),
+        "Windows_2k.log": WindowsLogParser(),
     }
 
     def __init__(self):
@@ -654,10 +789,16 @@ class ParserFactory:
     def get_parser(self, filepath: Path) -> BaseParser:
         """Get appropriate parser for a file."""
         filename = filepath.name
+        lower_name = filename.lower()
         extension = filepath.suffix.lower()
 
         if filename in self.LOG_PARSERS:
             return self.LOG_PARSERS[filename]
+
+        if "hadoop" in lower_name or "yarn" in lower_name or "mapreduce" in lower_name:
+            return HadoopLogParser()
+        if "windows" in lower_name or lower_name.startswith("cbs"):
+            return WindowsLogParser()
 
         parser_type = self.EXTENSION_MAP.get(extension, "log")
         return self._parsers.get(parser_type, TextLogParser())
