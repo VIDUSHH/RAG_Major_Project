@@ -1,17 +1,3 @@
-"""
-Data Ingestion Script for RAG Project
-
-This script ingests log datasets from the Datasets folder and stores them in:
-- Qdrant (vector database) for semantic search
-- Neo4j (graph database) for relationship analysis
-
-Run this script after starting Docker infrastructure (from the project root):
-    docker compose -f infrastructure/docker-compose.yml up -d qdrant neo4j
-
-Then run:
-    python scripts/ingest_datasets.py
-"""
-
 import os
 import re
 import uuid
@@ -37,9 +23,7 @@ dotenv_path = Path(__file__).parent.parent / ".env"
 if dotenv_path.exists():
     load_dotenv(dotenv_path)
 
-# ============================================================================
 # Configuration
-# ============================================================================
 
 @dataclass
 class Config:
@@ -76,10 +60,7 @@ class Config:
 
 CONFIG = Config()
 
-
-# ============================================================================
 # Data Models
-# ============================================================================
 
 @dataclass
 class NormalizedLog:
