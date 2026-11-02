@@ -6,6 +6,7 @@ Falls back to mock provider for development when Gemini is unavailable.
 """
 
 import json
+import re
 import time
 import uuid
 from abc import ABC, abstractmethod
@@ -74,6 +75,268 @@ def _normalize_str(value: Any, allowed: set[str] | None, default: str) -> str:
     return candidate
 
 
+_STOPWORDS = {
+    "the", "and", "for", "why", "did", "does", "what", "how", "was", "were", "with",
+    "this", "that", "from", "have", "has", "had", "are", "you", "can", "should", "would",
+    "could", "about", "into", "over", "under", "there", "their", "them", "then", "than",
+    "when", "where", "which", "while", "please", "show", "give", "tell", "any", "all",
+    "me", "my", "our", "its", "not", "but", "out", "get", "got", "fix", "issue", "issues",
+}
+
+_LEVEL_RE = re.compile(r"\b(ERROR|FATAL|CRITICAL|WARN(?:ING)?|INFO|DEBUG|TRACE)\b", re.I)
+_PREFIX_RE = re.compile(r"^\[[^\]]*\]\s*service=.*?\s*level=(\S+)\s+(.*)$", re.I)
+_WINDOW_RE = re.compile(r"^Service:.*?Log count:\s*\d+\.\s*(.*)$", re.I)
+_TRUNCATED_HEADER_RE = re.compile(r"^\[[^\]]*\]\s*service=\S+", re.I)
+_FAILURE_WORD_RE = re.compile(
+    r"\b(fail(?:ed|ure|ing)?|error|exception|cannot|unable|denied|refused|timeout|timed out|invalid)\b",
+    re.I,
+)
+_CONFIG_LINE_RE = re.compile(r"^[\w.\-]+\s*[:=]\s*\S+$")
+_NON_LOG_LABEL_RE = re.compile(r"^(?:service node|graph (?:node|relationship)|relationship)\b", re.I)
+_TS_RE = re.compile(r"^\[([^\]]+)\]")
+
+_SIGNATURE_RULES: dict[str, dict[str, Any]] = {
+    "connectivity failure": {
+        "keywords": [
+            "connection refused", "retrying connect", "error in contacting", "connect to server",
+            "connection reset", "no route to host", "failed to connect", "broken pipe",
+            "connection error", "error contacting rm",
+        ],
+        "explanation": (
+            "Repeated connection attempts to a required endpoint (ResourceManager, NameNode, "
+            "or a remote service) failed, so work could not be scheduled or completed."
+        ),
+        "fixes": [
+            "Confirm the target endpoint (host and port) is reachable from the failing node (ping/telnet/nc).",
+            "Check the ResourceManager/NameNode/master service health and logs for restarts or overload.",
+            "Review firewall, security-group, DNS and hosts configuration between the worker and the endpoint.",
+            "Tune IPC retry/timeout settings (e.g. ipc.client.connect.max.retries, socket timeouts) if failures are transient.",
+            "Re-run the workload after connectivity is restored and verify no failed containers remain.",
+        ],
+    },
+    "scheduler/container allocation failure": {
+        "keywords": [
+            "container allocator", "could not allocate", "no available resources", "insufficient resources",
+            "rmcontainerallocator", "allocation", "container allocation", "resource manager",
+            "not enough resources", "queue",
+        ],
+        "explanation": (
+            "The scheduler could not allocate containers for the job, typically due to insufficient "
+            "cluster resources, queue limits, or an unavailable/overloaded ResourceManager."
+        ),
+        "fixes": [
+            "Inspect YARN queue capacity and cluster resource usage during the incident window.",
+            "Check ResourceManager and NodeManager logs for container allocation errors.",
+            "Increase queue capacity or reduce concurrent demand, then resubmit the job.",
+            "Verify NodeManager health and that nodes are not marked unhealthy or decommissioned.",
+            "Review scheduler (capacity/fair) configuration for restrictive limits.",
+        ],
+    },
+    "HDFS lease/NameNode warning": {
+        "keywords": ["leaserenewer", "lease renewal", "lease expired", "lease", "namenode", "hdfs"],
+        "explanation": (
+            "The HDFS lease renewal path reported warnings, which can stall writes and leave "
+            "files under construction if the NameNode or client connection is unhealthy."
+        ),
+        "fixes": [
+            "Check NameNode health, load and logs for lease-related warnings.",
+            "Verify network connectivity between the client and NameNode.",
+            "Ensure the client is not pausing lease renewals (long GC pauses, blocked threads).",
+            "Review dfs.client.socket-timeout and lease renewal intervals.",
+            "If files are stuck under construction, use hdfs debug recoverLease after confirming safety.",
+        ],
+    },
+    "operation timeout": {
+        "keywords": ["timed out", "timeout", "deadline exceeded", "socket timeout", "retry policy"],
+        "explanation": (
+            "An operation exceeded its configured deadline, indicating a slow or unresponsive "
+            "downstream dependency."
+        ),
+        "fixes": [
+            "Identify the dependency that is responding slowly and check its health and latency.",
+            "Review timeout/retry settings and confirm they match the service SLO.",
+            "Look for resource saturation (CPU, memory, disk I/O, GC pauses) on the dependency.",
+            "Add or tune circuit breakers and backoff to avoid cascading retries.",
+            "Re-test after remediation and compare latency to the baseline.",
+        ],
+    },
+    "memory exhaustion": {
+        "keywords": ["outofmemory", "out of memory", "gc overhead", "heap space", "memory error"],
+        "explanation": "A process exhausted its available heap, causing the task or JVM to fail.",
+        "fixes": [
+            "Increase heap/container memory for the affected component within cluster limits.",
+            "Analyse heap dumps and GC logs to locate the leak or oversized working set.",
+            "Reduce batch/partition sizes or increase parallelism to lower per-task memory.",
+            "Review recent code/config changes that increased memory usage.",
+            "Add memory-usage alerting to catch growth before OOM.",
+        ],
+    },
+    "disk/I/O failure": {
+        "keywords": ["no space left", "disk full", "disk failure", "ioexception", "input/output error", "read-only file system"],
+        "explanation": "A node ran out of disk space or hit an I/O error, preventing normal operation.",
+        "fixes": [
+            "Check disk usage on the affected node and free or expand capacity.",
+            "Inspect system logs (dmesg) for hardware or filesystem errors.",
+            "Verify data directories are writable and not mounted read-only.",
+            "Move data to healthy nodes / decommission failing disks.",
+            "Add disk-space alerting and log-rotation policies.",
+        ],
+    },
+    "Windows servicing (CBS/CSI) error": {
+        "keywords": ["cbs", "csi", "servicing", "component store", "windows update", "corrupt", "repair"],
+        "explanation": (
+            "The Windows servicing stack (CBS/CSI) reported component-store or update errors, "
+            "which can leave the component store inconsistent."
+        ),
+        "fixes": [
+            "Run DISM /Online /Cleanup-Image /ScanHealth and /RestoreHealth.",
+            "Run sfc /scannow to repair protected system files.",
+            "Review CBS.log/CSI.log for the specific component or package that failed.",
+            "Free space on the system drive (servicing requires headroom).",
+            "Re-apply the failed update after repairing the component store.",
+        ],
+    },
+    "authentication/authorization failure": {
+        "keywords": ["authentication", "unauthorized", "forbidden", "permission denied", "access denied", "401", "403"],
+        "explanation": "A request was rejected because authentication or authorization failed.",
+        "fixes": [
+            "Verify credentials, tokens and certificates used by the affected service.",
+            "Check role/ACL assignments and recent permission changes.",
+            "Confirm clock skew is within tolerance for token validation.",
+            "Review authentication service availability and logs.",
+            "Rotate or re-issue credentials if they expired or were revoked.",
+        ],
+    },
+    "DNS/name resolution failure": {
+        "keywords": ["name or service not known", "unknown host", "dns", "resolve host", "temporary failure in name resolution"],
+        "explanation": "Hostname resolution failed for a required dependency.",
+        "fixes": [
+            "Verify DNS servers and resolver configuration on the affected host.",
+            "Confirm the target hostname resolves correctly (nslookup/dig).",
+            "Check /etc/hosts (or Windows hosts file) for stale or conflicting entries.",
+            "Review DNS service health and recent record changes.",
+            "Add retries/fallbacks for transient resolution failures.",
+        ],
+    },
+    "database contention": {
+        "keywords": ["deadlock", "lock wait", "replication lag", "connection pool", "too many connections"],
+        "explanation": "The database connection pool or locking path was saturated or blocked.",
+        "fixes": [
+            "Inspect slow queries and lock waits during the incident window.",
+            "Increase pool size or reduce long-held transactions as appropriate.",
+            "Check replication lag and database server resource saturation.",
+            "Review recent schema/index or query changes.",
+            "Add monitoring for pool saturation and lock contention.",
+        ],
+    },
+}
+
+
+def _query_tokens(query: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[a-z0-9_]+", query.lower())
+        if len(token) > 2 and token not in _STOPWORDS
+    }
+
+
+def _iter_log_lines(evidence: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Flatten evidence chunks into individual, cleaned log lines."""
+    lines: list[dict[str, Any]] = []
+    for ev in evidence:
+        content = (ev.get("content") or "").strip()
+        if not content:
+            continue
+        if _NON_LOG_LABEL_RE.match(content):
+            continue
+        meta = ev.get("metadata") or {}
+        raw_parts = [p.strip() for p in re.split(r"\s\|\s|\n", content) if p.strip()]
+        parts: list[tuple[str, bool]] = []
+        for part in raw_parts:
+            window_match = _WINDOW_RE.match(part)
+            if window_match:
+                parts.extend(
+                    (p.strip(), True)
+                    for p in re.split(r"\s{2,}", window_match.group(1))
+                    if p.strip()
+                )
+            else:
+                parts.append((part, False))
+
+        for part, from_window in parts:
+            level = None
+            timestamp = None
+            prefix_match = _PREFIX_RE.match(part)
+            if prefix_match:
+                level = prefix_match.group(1).upper()
+                ts_match = _TS_RE.match(part)
+                timestamp = ts_match.group(1) if ts_match else None
+                line = prefix_match.group(2).strip()
+            elif _TRUNCATED_HEADER_RE.match(part):
+                continue
+            else:
+                level_match = _LEVEL_RE.search(part)
+                level = level_match.group(1).upper() if level_match else None
+                line = part
+            if not level:
+                level = (meta.get("level") or meta.get("severity") or "").upper() or None
+            lines.append(
+                {
+                    "line": line[:500],
+                    "level": level,
+                    "service": meta.get("service"),
+                    "timestamp": timestamp or meta.get("timestamp"),
+                    "source": ev.get("source"),
+                    "from_window": from_window,
+                }
+            )
+    return lines
+
+
+def _rank_log_lines(
+    evidence: list[dict[str, Any]],
+    query: str,
+    signature_keywords: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    tokens = _query_tokens(query)
+    sig_tokens = [k.lower() for k in (signature_keywords or []) if k]
+    seen: set[str] = set()
+    scored: list[tuple[int, dict[str, Any]]] = []
+    for item in _iter_log_lines(evidence):
+        key = item["line"][:120].lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        text = item["line"].lower()
+        score = sum(1 for token in tokens if token in text)
+        if sig_tokens:
+            score += 2 * sum(1 for token in sig_tokens if token in text)
+        if _FAILURE_WORD_RE.search(text):
+            score += 2
+        if _CONFIG_LINE_RE.match(item["line"].strip()):
+            score -= 2
+        if item["level"] in {"ERROR", "FATAL", "CRITICAL"}:
+            score += 3
+        elif item["level"] in {"WARN", "WARNING"}:
+            score += 1
+        if item.get("from_window"):
+            score -= 2
+        scored.append((score, item))
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    return [item for _, item in scored]
+
+
+def _detect_signature(text: str) -> tuple[str | None, int]:
+    low = text.lower()
+    best_label: str | None = None
+    best_hits = 0
+    for label, rule in _SIGNATURE_RULES.items():
+        hits = sum(low.count(keyword) for keyword in rule["keywords"])
+        if hits > best_hits:
+            best_label, best_hits = label, hits
+    return best_label, best_hits
+
+
 def _ground_analysis_response(
     data: dict[str, Any],
     query: str,
@@ -91,6 +354,70 @@ def _ground_analysis_response(
     services = understanding.entities.services or ["unknown-service"]
     errors = understanding.entities.errors or ["unknown-error"]
 
+    # Derive services / severity signals from the actual retrieved evidence so the
+    # grounded fallback is specific instead of generic.
+    ev_services: list[str] = []
+    ev_levels: dict[str, int] = {}
+    for _ev in evidence:
+        _meta = _ev.get("metadata") or {}
+        _svc = _meta.get("service")
+        if _svc and _svc != "unknown" and _svc not in ev_services:
+            ev_services.append(_svc)
+        _lvl = _meta.get("level") or _meta.get("severity")
+        if _lvl:
+            ev_levels[_lvl] = ev_levels.get(_lvl, 0) + 1
+
+    if understanding.entities.services:
+        services = understanding.entities.services
+    elif ev_services:
+        services = ev_services
+
+    if understanding.entities.errors:
+        errors = understanding.entities.errors
+    else:
+        _error_levels = [lvl for lvl in ev_levels if lvl in {"ERROR", "CRITICAL", "FATAL"}]
+        errors = _error_levels or ["unknown-error"]
+
+    evidence_text = " ".join(str(ev.get("content") or "") for ev in evidence)
+    combined_text = evidence_text
+    signature_label, _signature_hits = _detect_signature(combined_text + " " + query)
+    signature_keywords = (
+        _SIGNATURE_RULES.get(signature_label, {}).get("keywords", []) if signature_label else []
+    )
+
+    ranked_lines = _rank_log_lines(evidence, query, signature_keywords)
+
+    def _is_strong(item: dict[str, Any]) -> bool:
+        text = item["line"].lower()
+        return (
+            item["level"] in {"ERROR", "FATAL", "CRITICAL", "WARN", "WARNING"}
+            or bool(_FAILURE_WORD_RE.search(text))
+            or any(k in text for k in signature_keywords)
+        )
+
+    strong_lines = [item for item in ranked_lines if _is_strong(item)]
+    primary = strong_lines[0] if strong_lines else None
+    error_lines = [
+        item
+        for item in ranked_lines
+        if item["level"] in {"ERROR", "FATAL", "CRITICAL", "WARN", "WARNING"}
+    ]
+    matched_lines = (error_lines or ranked_lines)[:6]
+
+    signature_rule = _SIGNATURE_RULES.get(signature_label) if signature_label else None
+    signature_phrase = signature_label or "the observed failure"
+
+    primary_service = (
+        (understanding.entities.services[0] if understanding.entities.services else None)
+        or (primary.get("service") if primary and primary.get("service") else None)
+        or (services[0] if services else "the affected service")
+    )
+    primary_line = primary["line"] if primary else ""
+    primary_timestamp = (
+        str(primary.get("timestamp")) if primary and primary.get("timestamp") else ""
+    )
+    evidence_services = ", ".join(services[:4])
+
     sources = [
         {
             "source_file": e.get("metadata", {}).get("source_file") or e.get("source", "unknown"),
@@ -100,8 +427,17 @@ def _ground_analysis_response(
             "service": e.get("metadata", {}).get("service", "unknown"),
             "timestamp": e.get("metadata", {}).get("timestamp", "unknown"),
         }
-        for e in evidence[:10]
+        for e in evidence[:20]
     ]
+
+    # Real timestamps from the matched logs (not the current time).
+    observed_timestamps = sorted(
+        {
+            str(item["timestamp"])
+            for item in matched_lines
+            if item.get("timestamp") and len(str(item["timestamp"])) >= 10
+        }
+    )
 
     timeline = data.get("timeline")
     if isinstance(timeline, list):
@@ -109,51 +445,191 @@ def _ground_analysis_response(
             t for t in timeline if isinstance(t, dict) and t.get("timestamp") and t.get("event")
         ]
     if not timeline:
-        now = datetime.now(UTC).isoformat(timespec="seconds")
-        timeline = [
-            {"timestamp": now, "event": f"Analysis requested: {query[:100]}", "actor": "user"},
-            {
-                "timestamp": now,
-                "event": f"Found {len(evidence)} evidence items from vector/graph search",
-                "actor": "rag-system",
-            },
+        timeline = []
+        if observed_timestamps:
+            timeline.append(
+                {
+                    "timestamp": observed_timestamps[0],
+                    "event": f"Earliest matching log entry for {primary_service}",
+                    "actor": "logs",
+                }
+            )
+        if primary_timestamp and primary_line:
+            timeline.append(
+                {
+                    "timestamp": primary_timestamp,
+                    "event": f"Primary failure signature: {primary_line[:140]}",
+                    "actor": primary_service,
+                }
+            )
+        if observed_timestamps and observed_timestamps[-1] != observed_timestamps[0]:
+            timeline.append(
+                {
+                    "timestamp": observed_timestamps[-1],
+                    "event": f"Most recent matching log entry for {primary_service}",
+                    "actor": "logs",
+                }
+            )
+        if not timeline:
+            now = datetime.now(UTC).isoformat(timespec="seconds")
+            timeline = [
+                {
+                    "timestamp": now,
+                    "event": f"Analysis requested: {query[:100]}",
+                    "actor": "user",
+                },
+                {
+                    "timestamp": now,
+                    "event": "No timestamped log matches were found",
+                    "actor": "rag-system",
+                },
+            ]
+
+    fixes = (
+        signature_rule["fixes"]
+        if signature_rule
+        else [
+            f"Inspect {primary_service} logs around the incident window for the root trigger.",
+            "Check the health and saturation of upstream dependencies.",
+            "Review recent deployments and configuration changes.",
+            "Compare with similar historical incidents in the knowledge base.",
+            "Apply the validated fix and monitor for recurrence.",
         ]
+    )
+
+    if not evidence:
+        root_cause_default = (
+            "Insufficient evidence found in the indexed knowledge base for this query."
+        )
+        impact_default = "Unable to determine impact: no matching logs or graph nodes were retrieved."
+        resolution_default = (
+            "No remediation can be derived without matching evidence. Ingest the relevant logs "
+            "or broaden the query, then re-run the analysis."
+        )
+        potential_default = "Under investigation — no supporting evidence retrieved."
+    elif primary:
+        root_cause_default = (
+            f"{primary_service} failed"
+            + (f" at {primary_timestamp}" if primary_timestamp else "")
+            + f": {primary_line}. "
+            + (f"{signature_rule['explanation']} " if signature_rule else "")
+            + f"This is corroborated by {len(matched_lines)} matching log entries across "
+            f"{len(sources)} cited sources."
+        )
+        error_count = sum(
+            1 for item in matched_lines if item["level"] in {"ERROR", "FATAL", "CRITICAL"}
+        )
+        impact_default = (
+            f"{primary_service} was impacted during "
+            f"{observed_timestamps[0] if observed_timestamps else 'the incident window'}"
+            + (f" to {observed_timestamps[-1]}" if len(observed_timestamps) > 1 else "")
+            + f". {error_count} error-level and {len(matched_lines) - error_count} warning/other "
+            f"matching entries were retrieved across {evidence_services}."
+        )
+        resolution_default = (
+            f"Recommended remediation for {primary_service} ({signature_phrase}):\n"
+            + "\n".join(f"{i}. {step}" for i, step in enumerate(fixes, 1))
+        )
+        potential_default = (
+            f"Most likely {signature_phrase} in {primary_service}: {primary_line[:200]}"
+            if signature_rule
+            else f"Most likely failure in {primary_service}, evidenced by: {primary_line[:200]}"
+        )
+    else:
+        if signature_rule:
+            root_cause_default = (
+                f"{primary_service} most likely experienced a {signature_phrase}. "
+                f"{signature_rule['explanation']} "
+                f"Retrieved {len(evidence)} evidence items across {evidence_services}, but none "
+                "contained an explicit failure line; review the evidence section for the closest "
+                "matches."
+            )
+            resolution_default = (
+                f"Recommended remediation for {primary_service} ({signature_phrase}):\n"
+                + "\n".join(f"{i}. {step}" for i, step in enumerate(fixes, 1))
+            )
+            potential_default = f"Most likely {signature_phrase} in {primary_service}."
+        else:
+            root_cause_default = (
+                f"Retrieved {len(evidence)} evidence items for {evidence_services}, but none "
+                "contained a clear failure line. Review the evidence section for the closest matches."
+            )
+            resolution_default = (
+                "1. Inspect the retrieved evidence for the earliest anomaly.\n"
+                "2. Correlate with service health and recent changes.\n"
+                "3. Re-run the query with a more specific error or service name."
+            )
+            potential_default = f"Likely related to {evidence_services}."
+        impact_default = f"Service(s) {evidence_services} matched the query; impact is unconfirmed."
+
+    signature_keywords = (
+        ", ".join(signature_rule["keywords"][:3])
+        if signature_rule
+        else (errors[0] if errors else "errors")
+    )
 
     lessons_learned = data.get("lessons_learned")
     if not isinstance(lessons_learned, list) or not lessons_learned:
-        lessons_learned = (
-            [
-                "Implement better monitoring for early detection",
-                "Ensure proper alerting on error rate thresholds",
-                "Document runbooks for common failure scenarios",
+        if evidence:
+            lessons_learned = [
+                f"Add proactive alerting for {signature_phrase} in {primary_service} "
+                f"(watch for {signature_keywords}).",
+                f"Document and rehearse a recovery runbook for {primary_service} "
+                "covering this failure mode.",
+                f"Capture the '{primary_line[:80]}' signature and link it to historical incidents "
+                "for faster matching.",
+                f"Review retry/timeout and capacity configuration for {primary_service} "
+                "to prevent recurrence.",
             ]
-            if evidence
-            else ["Insufficient historical data for lessons learned"]
-        )
+        else:
+            lessons_learned = ["Insufficient historical data for lessons learned"]
 
     log_snippets = data.get("log_snippets")
-    if not isinstance(log_snippets, list):
-        log_snippets = [e.get("content", "")[:200] for e in evidence[:3]]
+    if not isinstance(log_snippets, list) or not log_snippets:
+        log_snippets = [item["line"][:240] for item in matched_lines]
 
     tags = data.get("tags")
     if not isinstance(tags, list):
-        tags = services + errors + [understanding.intent.value]
+        tags = list(
+            dict.fromkeys(
+                services
+                + ([signature_label] if signature_label else [])
+                + errors
+                + [understanding.intent.value]
+            )
+        )
 
     recommended_investigation = data.get("recommended_investigation")
     if not isinstance(recommended_investigation, list) or not recommended_investigation:
-        recommended_investigation = [
-            f"Check {services[0]} logs for error patterns",
-            f"Review recent deployments to {services[0]}",
-            f"Verify {errors[0]} related configurations" if errors else "Analyze error patterns",
-            "Compare with similar historical incidents",
-            "Validate dependency health for upstream services",
-        ]
+        if primary:
+            recommended_investigation = [
+                f"Inspect {primary_service} logs around "
+                f"{observed_timestamps[0] if observed_timestamps else 'the incident window'} "
+                f"for '{signature_keywords}'.",
+                f"Validate the proposed remediation steps for {primary_service} ({signature_phrase}).",
+                f"Check the health of related services: {evidence_services}.",
+                f"Compare against {len(sources)} cited historical log matches to confirm the pattern.",
+                "Confirm recovery and record the verified fix for future retrieval.",
+            ]
+        else:
+            recommended_investigation = [
+                "Broaden the query with a service name, error text, or timestamp.",
+                "Ingest the relevant log files for the incident window.",
+                "Review the vector and graph stores for available services.",
+            ]
 
-    default_confidence = "Insufficient Evidence" if not evidence else "Medium"
+    if not evidence:
+        default_confidence = "Insufficient Evidence"
+    elif signature_rule and len(matched_lines) >= 4:
+        default_confidence = "High"
+    else:
+        default_confidence = "Medium"
 
     return {
         "incident_id": str(uuid.uuid4()),
-        "title": _normalize_str(data.get("title"), None, f"Incident Analysis: {query[:80]}"),
+        "title": _normalize_str(
+            data.get("title"), None, f"{primary_service}: {signature_phrase}"
+        ),
         "source": _normalize_str(data.get("source"), _ALLOWED_SOURCES, "analysis"),
         "source_url": data.get("source_url") if isinstance(data.get("source_url"), str) else None,
         "severity": _normalize_str(
@@ -168,19 +644,15 @@ def _ground_analysis_response(
         "root_cause": _normalize_str(
             data.get("root_cause"),
             None,
-            "Insufficient evidence found in the indexed knowledge base."
-            if not evidence
-            else "Based on retrieved evidence showing similar patterns in historical incidents.",
+            root_cause_default,
         ),
         "impact": _normalize_str(
             data.get("impact"),
             None,
-            f"Service {services[0]} experiencing degraded performance or errors"
-            if services
-            else "Impact under investigation",
+            impact_default,
         ),
         "resolution": _normalize_str(
-            data.get("resolution"), None, "Under investigation. Check retrieved evidence for fixes."
+            data.get("resolution"), None, resolution_default
         ),
         "lessons_learned": lessons_learned,
         "log_snippets": log_snippets,
@@ -198,15 +670,13 @@ def _ground_analysis_response(
             None,
             f"Analysis generated from {len(evidence)} retrieved evidence items for query: {query}",
         ),
-        "evidence": evidence[:10],
-        "graph_relationships": graph_relationships[:10],
+        "evidence": evidence[:20],
+        "graph_relationships": graph_relationships[:20],
         "recommended_investigation": recommended_investigation,
         "potential_root_cause": _normalize_str(
             data.get("potential_root_cause"),
             None,
-            f"Likely related to {', '.join(errors)} in {', '.join(services)}"
-            if (services or errors)
-            else "Under investigation",
+            potential_default,
         ),
         "risk_severity": _normalize_str(data.get("risk_severity"), _ALLOWED_RISKS, "Medium"),
         "confidence": _normalize_str(
