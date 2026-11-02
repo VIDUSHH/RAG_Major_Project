@@ -92,13 +92,17 @@ class DenseVectorRetriever(BaseRetriever):
                 end_time=filter_.get("end_time"),
             )
 
-        results = self.qdrant.search(
-            query_vector=query_vector,
-            collection_name=self.collection_name,
-            limit=top_k,
-            filter_=qdrant_filter,
-            with_vectors=False,
-        )
+        try:
+            results = self.qdrant.search(
+                query_vector=query_vector,
+                collection_name=self.collection_name,
+                limit=top_k,
+                filter_=qdrant_filter,
+                with_vectors=False,
+            )
+        except Exception as e:
+            logger.warning(f"Dense retrieval skipped (Qdrant unavailable or failed): {e}")
+            return []
 
         candidates = []
         for rank, result in enumerate(results):

@@ -287,7 +287,11 @@ def list_graph_nodes(
         neo4j = get_neo4j_service()
 
         type_filter = f":{node_type}" if node_type else ""
-        query = f"MATCH (n{type_filter}) WHERE n.organization_id = $org_id RETURN n LIMIT $limit"
+        query = (
+            f"MATCH (n{type_filter}) "
+            "WHERE n.organization_id IS NULL OR n.organization_id = $org_id "
+            "RETURN n LIMIT $limit"
+        )
 
         with neo4j.session() as session:
             result = session.run(query, {"org_id": ctx.organization_id, "limit": limit})
@@ -324,7 +328,8 @@ def list_graph_relationships(
         type_filter = f":{rel_type}" if rel_type else ""
         query = f"""
         MATCH (a)-[r{type_filter}]->(b)
-        WHERE a.organization_id = $org_id OR b.organization_id = $org_id
+        WHERE a.organization_id IS NULL OR b.organization_id IS NULL
+           OR a.organization_id = $org_id OR b.organization_id = $org_id
         RETURN a.id as source, b.id as target, type(r) as type, properties(r) as props
         LIMIT $limit
         """

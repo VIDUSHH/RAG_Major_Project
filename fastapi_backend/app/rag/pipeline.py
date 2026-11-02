@@ -152,6 +152,17 @@ class QueryUnderstandingEngine:
         )
 
 
+def _json_safe(value: Any) -> Any:
+    """Recursively convert Neo4j/time types into JSON-serializable values."""
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(v) for v in value]
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
+
+
 class ContextAssembler:
     """Assembles retrieval results into structured context for LLM."""
 
@@ -198,14 +209,37 @@ class ContextAssembler:
         # Graph evidence
         for gr in context.graph_results:
             for node in gr.nodes:
+                props = _json_safe(node.properties or {})
+                node_type = node.type.value
+                if node_type == "LogEntry":
+                    content = (props.get("text") or "")[:500]
+                    metadata = {
+                        "service": props.get("service"),
+                        "level": props.get("level"),
+                        "source_file": props.get("source"),
+                        "timestamp": props.get("timestamp"),
+                    }
+                    source = props.get("source") or node.id
+                elif node_type == "Service":
+                    name = props.get("name") or node.id
+                    content = f"Service node: {name}"
+                    metadata = {"service": name}
+                    source = "graph:service"
+                else:
+                    content = str(props)[:500]
+                    metadata = {}
+                    source = f"graph:{node_type.lower()}"
+
                 evidence.append(
                     {
                         "type": "graph",
                         "query_type": gr.query_type.value,
                         "node_id": node.id,
-                        "node_type": node.type.value,
-                        "properties": node.properties,
-                        "content": str(node.properties)[:500],
+                        "node_type": node_type,
+                        "source": source,
+                        "content": content,
+                        "metadata": metadata,
+                        "properties": props,
                     }
                 )
 
@@ -221,7 +255,7 @@ class ContextAssembler:
                         "source": rel.source_id,
                         "target": rel.target_id,
                         "type": rel.type.value,
-                        "properties": rel.properties,
+                        "properties": _json_safe(rel.properties),
                     }
                 )
         return relationships
