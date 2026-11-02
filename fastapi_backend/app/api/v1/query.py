@@ -4,12 +4,12 @@ Query and analysis API endpoints for the FastAPI data plane.
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
 from app.core.dependencies import TenantDep
 from app.core.logging import logger
-from app.rag.pipeline import QueryIntent, get_rag_pipeline
+from app.rag.pipeline import QueryIntent, _json_safe, get_rag_pipeline
 
 router = APIRouter()
 
@@ -68,6 +68,12 @@ class SearchResponse(BaseModel):
     query: str
     vector_results: list[dict[str, Any]]
     graph_results: list[dict[str, Any]]
+
+
+class ReportPDFRequest(BaseModel):
+    """Request model for exporting a completed analysis as PDF."""
+
+    analysis: dict[str, Any]
 
 
 @router.post("/analyze", response_model=QueryResponse, summary="Analyze an incident")
@@ -129,6 +135,33 @@ def analyze_incident(
         ) from e
 
 
+@router.post("/report/pdf", summary="Download the analysis report as PDF")
+def download_report_pdf(
+    request: ReportPDFRequest,
+    ctx: TenantDep,
+):
+    """Render a completed analysis into a clean, structured PDF report."""
+    from app.services.pdf_service import build_analysis_pdf
+
+    try:
+        pdf_bytes = build_analysis_pdf(request.analysis)
+    except Exception as e:
+        logger.error(f"PDF report generation failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"PDF generation failed: {str(e)}",
+        ) from e
+
+    from datetime import datetime
+
+    filename = f"incident-analysis-{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/search", response_model=SearchResponse, summary="Search incidents and logs")
 def search_incidents(
     request: SearchRequest,
@@ -149,7 +182,7 @@ def search_incidents(
             top_k=request.top_k,
         )
 
-        return result
+        return _json_safe(result)
 
     except Exception as e:
         logger.error(f"Search failed: {e}")
