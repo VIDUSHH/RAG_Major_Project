@@ -290,7 +290,7 @@ function initDataTable(tableId, options = {}) {
     return $(table).DataTable(defaultOptions);
 }
 
-window.RAGApp = {
+window.GraphRCAApp = {
     showToast,
     showLoading,
     hideLoading,

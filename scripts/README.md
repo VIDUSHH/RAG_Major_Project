@@ -1,6 +1,6 @@
 # Scripts
 
-Developer utility scripts for the RAG Postmortem Intelligence System.
+Developer utility scripts for GraphRCA: Graph-Based Root Cause Analysis.
 
 Scripts are added here as the project grows — seeding data, running evaluations,
 managing collections, etc.

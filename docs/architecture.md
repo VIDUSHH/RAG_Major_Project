@@ -1,6 +1,6 @@
 # Architecture
 
-**RAG-Based Postmortem Intelligence System**
+**GraphRCA: Graph-Based Root Cause Analysis**
 
 > This document reflects Phase 1 of the implementation. It will be updated as each phase completes.
 
@@ -129,7 +129,7 @@ Layer 5 — Intelligence
 ## Repository Layout
 
 ```
-RAG Project/
+GraphRCA/
 ├── django_backend/          # Control plane
 │   ├── config/              # Django settings, URLs, ASGI/WSGI
 │   └── apps/

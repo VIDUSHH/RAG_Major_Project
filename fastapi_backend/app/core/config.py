@@ -7,7 +7,7 @@ ROOT_ENV = ROOT_DIR / ".env"
 
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "RAG Postmortem Intelligence System - AI Plane"
+    PROJECT_NAME: str = "GraphRCA: Graph-Based Root Cause Analysis - AI Plane"
     API_V1_STR: str = "/api/v1"
     ENVIRONMENT: str = "development"
     DEBUG: bool = True

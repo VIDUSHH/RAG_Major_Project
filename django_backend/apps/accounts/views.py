@@ -145,7 +145,7 @@ def register_view(request):
             user = form.save()
             login(request, user)
             messages.success(
-                request, "Account created successfully! Welcome to RAG Postmortem Intelligence."
+                request, "Account created successfully! Welcome to GraphRCA."
             )
             return redirect("dashboard")
     else:

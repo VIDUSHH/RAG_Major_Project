@@ -1,4 +1,4 @@
-# RAG-Based Postmortem Intelligence System
+# GraphRCA: Graph-Based Root Cause Analysis
 
 An intelligent backend platform that ingests application/system logs and historical postmortem reports, processes and indexes them, retrieves relevant historical incidents, understands relationships between services/errors/root causes/fixes, and generates grounded explanations and remediation recommendations.
 

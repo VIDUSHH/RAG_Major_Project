@@ -1,1 +1,1 @@
-"""Test suite package for RAG Postmortem Intelligence System."""
+"""Test suite package for GraphRCA: Graph-Based Root Cause Analysis."""
